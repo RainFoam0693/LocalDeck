@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix='localdeck-test-') as directory:
             try:
                 with urllib.request.urlopen(req, timeout=30) as res: return json.load(res)
             except urllib.error.HTTPError as error:
-                print('API error:', path, error.read().decode('utf-8'), flush=True)
+                print('API error:', path, ascii(error.read().decode('utf-8')), flush=True)
                 raise
         try:
             urllib.request.urlopen(base + '/state')
@@ -66,6 +66,7 @@ with tempfile.TemporaryDirectory(prefix='localdeck-test-') as directory:
         assert not find_listener(), 'Child HTTP process survived stop'
         request('/services/' + key + '/delete', {})
         assert request('/state')['services'] == []
+        key = None
         print('PASS: auth, real TCP discovery, Unicode config, PID guard, start, logs, restart, tree stop, delete')
     finally:
         if key:
