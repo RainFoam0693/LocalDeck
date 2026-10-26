@@ -30,7 +30,11 @@ with tempfile.TemporaryDirectory(prefix='localdeck-test-') as directory:
         base = 'http://127.0.0.1:' + str(info['port'])
         def request(path, body=None):
             req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None, headers={'Authorization': 'Bearer ' + info['token']})
-            with urllib.request.urlopen(req, timeout=30) as res: return json.load(res)
+            try:
+                with urllib.request.urlopen(req, timeout=30) as res: return json.load(res)
+            except urllib.error.HTTPError as error:
+                print('API error:', path, error.read().decode('utf-8'), flush=True)
+                raise
         try:
             urllib.request.urlopen(base + '/state')
             raise AssertionError('Unauthenticated request accepted')

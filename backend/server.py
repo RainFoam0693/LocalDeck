@@ -19,12 +19,12 @@ LOCK = threading.RLock()
 CHILDREN = {}
 
 def configured():
-    try: return json.loads(CONFIG.read_text())
+    try: return json.loads(CONFIG.read_text(encoding='utf-8'))
     except FileNotFoundError: return []
 
 def save(items):
     temp = CONFIG.with_suffix('.tmp')
-    temp.write_text(json.dumps(items, ensure_ascii=False, indent=2))
+    temp.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding='utf-8')
     temp.replace(CONFIG)
 
 def run(args):
@@ -94,7 +94,7 @@ def action(path, body):
                 if p and p.poll() is None: return {'ok': True}
                 with open(ROOT / (item['id'] + '.log'), 'ab') as log:
                     log.write(('\n--- ' + time.ctime() + ' ---\n').encode())
-                    args = [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/s', '/c', item['command']] if IS_WINDOWS else ['/bin/zsh', '-lc', item['command']]
+                    args = (subprocess.list2cmdline([os.environ.get('COMSPEC', 'cmd.exe')]) + ' /d /s /c \"' + item['command'] + '\"') if IS_WINDOWS else ['/bin/zsh', '-lc', item['command']]
                     options = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if IS_WINDOWS else {'start_new_session': True}
                     environment = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
                     CHILDREN[item['id']] = subprocess.Popen(args, cwd=item['directory'], stdout=log, stderr=log, env=environment, **options)
@@ -155,7 +155,6 @@ def stop_all():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(); parser.add_argument('--port', type=int, default=0)
     args = parser.parse_args()
-    token = secrets.token_urlsafe(32)
     server = make_server(args.port); token = server.token
     print(json.dumps({'port': server.server_port, 'token': token}), flush=True)
     def shutdown(*_):
