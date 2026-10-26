@@ -1,8 +1,8 @@
-# LocalDeck for macOS
+# LocalDeck for macOS & Windows
 
 <img src="assets/LocalDeck.png" width="128" alt="LocalDeck 应用图标">
 
-原生 SwiftUI 桌面应用 + Python 标准库本机 API。首版面向当前 Mac（Apple Silicon），无需 npm 依赖。
+本机 API、前端服务与终端任务的桌面管理软件。Mac 版使用 SwiftUI，Windows 版使用 Tk；共用带鉴权的本机 API。
 
 ## 下载
 
@@ -29,6 +29,23 @@ python3 scripts/test_backend.py
 
 构建要求 Xcode Command Line Tools。编译产物为 `dist/LocalDeck.app`。打包脚本另外生成 DMG（含 Applications 快捷方式）、ZIP 和 SHA-256 校验文件。图标由 `scripts/make-icon.swift` 绘制并生成完整尺寸的 ICNS。
 
+## Windows 版
+
+适用于 Windows 10/11 x64。下载 [Windows Release](https://github.com/RainFoam0693/LocalDeck/releases/tag/windows-v0.2.0) 中的 EXE 或 ZIP，双击运行；可以放在桌面，内置 Python 与 Tcl/Tk，无需另外安装运行时。当前 Windows 包未做 Authenticode 签名。
+
+功能包括 TCP 监听进程扫描、搜索、打开浏览器和目录、确认后停止进程、命令启动项、启停/重启和最近 100 KB 日志。Windows 命令通过 `cmd.exe /d /s /c` 执行；配置与日志在 `%LOCALAPPDATA%\LocalDeck`。受保护进程可能无法读取信息或停止，程序不会请求提权。Windows 停止操作会终止目标进程；托管任务会同时停止其子进程。使用 `start` 等脱离管理 shell 的任务可能继续运行。暂不支持交互式终端。
+
+开发和打包（在 Windows PowerShell 中）：
+
+```powershell
+python -m pip install -r windows/requirements.txt
+python windows/app.py
+python scripts/test_backend.py
+./windows/build.ps1
+```
+
+GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.2.0-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
+
 ## 后端 API
 
 应用自动启动后端，绑定 `127.0.0.1` 随机端口，使用每次启动生成的 Bearer Token，不向局域网暴露。可以独立启动：
@@ -50,4 +67,4 @@ python3 backend/server.py --port 8765
 | GET | `/logs/{id}` | 最近 100 KB 日志 |
 | POST | `/processes/stop` | 停止外部监听进程；JSON: pid, command，校验进程命令仍匹配 |
 
-配置支持 `LOCALDECK_DATA_DIR` 环境变量覆盖，便于隔离测试。启动项通过当前用户的 `/bin/zsh -lc` 执行，适用于自己信任的本机命令。守护进程化或主动脱离进程组的命令不保证退出时被回收。
+配置支持 `LOCALDECK_DATA_DIR` 环境变量覆盖，便于隔离测试。Mac 启动项通过当前用户的 `/bin/zsh -lc` 执行，Windows 使用 `cmd.exe`，适用于自己信任的本机命令。守护进程化或主动脱离进程组的命令不保证退出时被回收。

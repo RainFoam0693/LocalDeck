@@ -3,7 +3,15 @@
 import argparse, json, os, pathlib, secrets, signal, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = pathlib.Path(os.environ.get('LOCALDECK_DATA_DIR', str(pathlib.Path.home() / 'Library/Application Support/LocalDeck')))
+IS_WINDOWS = os.name == 'nt'
+if IS_WINDOWS:
+    try:
+        from backend import windows_platform
+    except ModuleNotFoundError:
+        import windows_platform
+DEFAULT_ROOT = (pathlib.Path(os.environ.get('LOCALAPPDATA', str(pathlib.Path.home() / 'AppData/Local'))) / 'LocalDeck'
+                if IS_WINDOWS else pathlib.Path.home() / 'Library/Application Support/LocalDeck')
+ROOT = pathlib.Path(os.environ.get('LOCALDECK_DATA_DIR', str(DEFAULT_ROOT)))
 ROOT.mkdir(parents=True, exist_ok=True)
 os.chmod(ROOT, 0o700)
 CONFIG = ROOT / 'services.json'
@@ -24,6 +32,7 @@ def run(args):
     except (subprocess.SubprocessError, OSError): return ''
 
 def listeners():
+    if IS_WINDOWS: return windows_platform.listeners()
     data = run(['/usr/sbin/lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-Fpcn'])
     rows, current = {}, {}
     for line in data.splitlines():
@@ -54,6 +63,10 @@ def snapshot():
 def stop(item_id):
     p = CHILDREN.get(item_id)
     if p and p.poll() is None:
+        if IS_WINDOWS:
+            windows_platform.stop_tree(p.pid)
+            p.wait(timeout=6)
+            return
         os.killpg(p.pid, signal.SIGTERM)
         try: p.wait(timeout=4)
         except subprocess.TimeoutExpired:
@@ -81,14 +94,17 @@ def action(path, body):
                 if p and p.poll() is None: return {'ok': True}
                 with open(ROOT / (item['id'] + '.log'), 'ab') as log:
                     log.write(('\n--- ' + time.ctime() + ' ---\n').encode())
-                    CHILDREN[item['id']] = subprocess.Popen(['/bin/zsh', '-lc', item['command']], cwd=item['directory'], stdout=log, stderr=log, start_new_session=True)
+                    args = [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/s', '/c', item['command']] if IS_WINDOWS else ['/bin/zsh', '-lc', item['command']]
+                    options = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if IS_WINDOWS else {'start_new_session': True}
+                    environment = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
+                    CHILDREN[item['id']] = subprocess.Popen(args, cwd=item['directory'], stdout=log, stderr=log, env=environment, **options)
             elif verb == 'delete': save([x for x in items if x['id'] != item['id']])
             elif verb != 'stop': raise ValueError('不支持的操作')
             return {'ok': True}
         if path == '/processes/stop':
             pid = int(body['pid'])
             match = next((x for x in listeners() if x['pid'] == pid), None)
-            if not match or match['command'] != body.get('command') or pid in (os.getpid(), os.getppid()):
+            if not match or not match['command'] or match['command'] != body.get('command') or pid in (os.getpid(), os.getppid()):
                 raise ValueError('进程已变化或不可停止，请刷新')
             os.kill(pid, signal.SIGTERM)
             return {'ok': True}
@@ -127,11 +143,20 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, action(self.path, json.loads(self.rfile.read(length) or b'{}')))
         except Exception as e: self.respond(400, {'error': str(e)})
 
+def make_server(port=0):
+    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    server.token = secrets.token_urlsafe(32)
+    return server
+
+def stop_all():
+    with LOCK:
+        for key in list(CHILDREN): stop(key)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(); parser.add_argument('--port', type=int, default=0)
     args = parser.parse_args()
     token = secrets.token_urlsafe(32)
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler); server.token = token
+    server = make_server(args.port); token = server.token
     print(json.dumps({'port': server.server_port, 'token': token}), flush=True)
     def shutdown(*_):
         with LOCK:
