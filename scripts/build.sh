@@ -13,6 +13,7 @@ swiftc scripts/make-icon.swift -module-cache-path /tmp/localdeck-module-cache -o
 /tmp/localdeck-make-icon "$PWD"
 iconutil -c icns assets/LocalDeck.iconset -o assets/LocalDeck.icns
 cp assets/LocalDeck.icns "$APP/Contents/Resources/LocalDeck.icns"
+cp licenses/SwiftTerm-LICENSE.txt "$APP/Contents/Resources/SwiftTerm-LICENSE.txt"
 cp backend/server.py "$APP/Contents/Resources/server.py"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
