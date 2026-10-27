@@ -65,11 +65,11 @@ Mac 终端烟雾测试：`dist/LocalDeck.app/Contents/MacOS/LocalDeck --terminal
 
 圆形齿轮打开设置，可切换外观、文件面板及隐藏文件，关于页提供开发者 GitHub 主页卡片。Mac 提供“完全磁盘访问权限”的系统设置入口，权限需用户在系统中手动授予；Windows 使用当前账户权限及 Windows 11 风格控件。液态玻璃仅用于 Mac。Mac 文件列表采用原生表格，目录选择使用非阻塞窗口。
 
-## Mac 原生玻璃（本地开发版，尚未发布）
+## Mac 原生玻璃
 
 macOS 26 及以上的操作按钮使用 SwiftUI 原生 `.glass` / `.glassProminent` 样式。顶部主导航与主题胶囊使用原生 `Picker`：macOS 27 及以上采用 `.tabs`，旧系统采用 `.segmented`。顶栏使用系统 bar 材质，列表、性能数据和终端正文保留实色背景。支持深浅色与跟随系统；透明度和动态效果遵循系统辅助功能设置。不使用自绘折射、手动玻璃珠动画或私有 API。
 
-## 外观切换（本地开发版，尚未发布）
+## 外观切换
 
 Mac 顶栏右侧、Windows 侧栏底部提供三段小胶囊：太阳（浅色）、月亮（深色）、显示器（跟随系统）。图标使用 SF Symbols / 单色矢量绘制，不使用 emoji。默认跟随系统，手动选择会保存；界面、日志及终端一起换色，切换外观不会重建或停止终端会话。Mac 的主导航已移至顶部：服务概览、启动项、终端工作区共用原生页签，左侧不再保留重复导航；品牌位于顶栏左侧，主题胶囊位于右侧。Mac 胶囊的布局空间为 165×44 点，使用系统大尺寸选择器，macOS 27 及以上采用原生 `.tabs` 样式；外观、选中滑块及交互全部交由 SwiftUI 处理，不包含自定义玻璃珠、放大、拖动或弹簧动画。Liquid Glass 材质从 macOS 26 起提供；macOS 27 起提供新版原生 tabs 选择交互，旧系统使用自身支持的普通分段控件。
 
@@ -77,7 +77,7 @@ Mac 顶栏右侧、Windows 侧栏底部提供三段小胶囊：太阳（浅色�
 
 0.5.0 重写 Windows 界面：统一深色控件、圆角面板、Windows UI 字体、高 DPI 缩放与轻量滚动条。保留系统原生标题栏及 Snap Layouts，通过公开 DWM API 请求深色标题栏、圆角和 Mica；Mica 需要 22H2 及以上，并服从系统设置。界面由 Qt 实现，并非 WinUI。macOS 界面与构建不受影响。
 
-0.5.0 尚未创建 Release，最新 Windows 测试包可从 [GitHub Actions](https://github.com/RainFoam0693/LocalDeck/actions/workflows/windows.yml) 的构建附件下载。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10。之前已发布的 [Windows 0.4.0](https://github.com/RainFoam0693/LocalDeck/releases/tag/windows-v0.4.0) 中的 EXE 或 ZIP，双击运行；可以放在桌面，内置 Python 与 Qt 6，无需另外安装运行时。当前 Windows 包未做 Authenticode 签名。
+最新安装包统一放在 [Releases](https://github.com/RainFoam0693/LocalDeck/releases/tag/v0.5.0)。Windows 选择 `LocalDeck-0.5.0-Windows-x64.exe`，双击运行；也可选择包含说明和第三方许可的 ZIP。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10，无需安装 Python 或 Qt。macOS Apple Silicon 选择 DMG 或 macOS ZIP。当前包未做 Apple 公证或 Windows Authenticode 签名。
 
 功能包括 TCP 监听进程扫描、搜索、打开浏览器和目录、确认后停止进程、命令启动项、启停/重启和最近 100 KB 日志。Windows 命令通过 `cmd.exe /d /s /c` 执行；配置与日志在 `%LOCALAPPDATA%\LocalDeck`。受保护进程可能无法读取信息或停止，程序不会请求提权。Windows 停止操作会终止目标进程；托管任务会同时停止其子进程。使用 `start` 等脱离管理 shell 的任务可能继续运行。「应用内终端」支持独立的 CMD / PowerShell 会话。
 

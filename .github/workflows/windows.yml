@@ -2,7 +2,7 @@ name: Windows desktop
 on:
   workflow_dispatch:
   push:
-    tags: ['windows-v*']
+    tags: ['windows-v*', 'v*']
     branches: [main]
     paths: ['backend/**', 'windows/**', 'scripts/test_backend.py', 'scripts/test_performance.py', '.github/workflows/windows.yml']
 permissions:
@@ -95,10 +95,10 @@ jobs:
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
-        if: startsWith(github.ref, 'refs/tags/windows-v')
+        if: startsWith(github.ref, 'refs/tags/windows-v') || startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.5.0 · Windows' --notes-file windows/RELEASE.md dist/LocalDeck-0.5.0-Windows-x64.exe dist/LocalDeck-0.5.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.5.0 · macOS & Windows 11' --notes-file RELEASE.md dist/LocalDeck-0.5.0-Windows-x64.exe dist/LocalDeck-0.5.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
