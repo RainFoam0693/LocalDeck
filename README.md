@@ -42,7 +42,7 @@ Mac 终端烟雾测试：`dist/LocalDeck.app/Contents/MacOS/LocalDeck --terminal
 
 ## Windows 版
 
-适用于 Windows 10/11 x64。下载 [Windows Release](https://github.com/RainFoam0693/LocalDeck/releases/tag/windows-v0.3.0) 中的 EXE 或 ZIP，双击运行；可以放在桌面，内置 Python 与 Tcl/Tk，无需另外安装运行时。当前 Windows 包未做 Authenticode 签名。
+适用于 Windows 10/11 x64。下载 [Windows Release](https://github.com/RainFoam0693/LocalDeck/releases/tag/windows-v0.3.1) 中的 EXE 或 ZIP，双击运行；可以放在桌面，内置 Python 与 Tcl/Tk，无需另外安装运行时。当前 Windows 包未做 Authenticode 签名。
 
 功能包括 TCP 监听进程扫描、搜索、打开浏览器和目录、确认后停止进程、命令启动项、启停/重启和最近 100 KB 日志。Windows 命令通过 `cmd.exe /d /s /c` 执行；配置与日志在 `%LOCALAPPDATA%\LocalDeck`。受保护进程可能无法读取信息或停止，程序不会请求提权。Windows 停止操作会终止目标进程；托管任务会同时停止其子进程。使用 `start` 等脱离管理 shell 的任务可能继续运行。「应用内终端」支持独立的 CMD / PowerShell 会话。
 
@@ -55,7 +55,7 @@ python scripts/test_backend.py
 ./windows/build.ps1
 ```
 
-GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.3.0-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
+GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.3.1-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
 
 ## 后端 API
 

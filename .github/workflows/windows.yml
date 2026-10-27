@@ -66,8 +66,8 @@ jobs:
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-0.3.0-Windows-x64.exe
-            dist/LocalDeck-0.3.0-Windows-x64.zip
+            dist/LocalDeck-0.3.1-Windows-x64.exe
+            dist/LocalDeck-0.3.1-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -76,5 +76,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.3.0 · Windows' --notes-file windows/RELEASE.md dist/LocalDeck-0.3.0-Windows-x64.exe dist/LocalDeck-0.3.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.3.1 · Windows' --notes-file windows/RELEASE.md dist/LocalDeck-0.3.1-Windows-x64.exe dist/LocalDeck-0.3.1-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

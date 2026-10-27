@@ -52,6 +52,12 @@ def run(app):
         with patch('windows.terminal.messagebox.askyesno', return_value=True): workspace.close_selected()
         pump(lambda: not psutil.pid_exists(sessions[0].process.pid))
         assert sessions[1].process.isalive(), 'Closing one tab stopped another tab'
+        # Exercise immediate exit while another tab is closing and a shell is starting.
+        third = TerminalSession(str(Path.home()))
+        sessions.append(third)
+        workspace.attach(third)
+        with patch('windows.terminal.messagebox.askyesno', return_value=True): workspace.close_selected()
+        workspace.add()
         app.tabs.select(0)
         app.close()
         end = time.monotonic() + 20
@@ -62,6 +68,7 @@ def run(app):
             except Exception: break
             time.sleep(0.03)
         assert not psutil.pid_exists(sessions[1].process.pid), 'Terminal shell survived application exit'
+        assert not psutil.pid_exists(sessions[2].process.pid), 'Closing tab survived immediate application exit'
         result = {'ok': True, 'tabs': 2, 'pageSwitch': True, 'resize': True, 'ctrlC': True, 'closeIsolation': True, 'exitCleanup': True}
         return result
     finally:

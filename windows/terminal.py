@@ -19,6 +19,7 @@ class TerminalSession:
     def __init__(self, directory, shell='cmd'):
         self.directory = directory
         self.lock = threading.RLock()
+        self.close_lock = threading.Lock()
         self.error = ''
         self.running = True
         self.version = 0
@@ -70,16 +71,17 @@ class TerminalSession:
         return '\n'.join(''.join(line[x].data if x in line else ' ' for x in range(columns)).rstrip() for line in lines)
 
     def close(self):
-        if self.closed: return
-        self.closed = True
-        try: stop_tree(self.process.pid)
-        finally:
-            self.running = False
-            # Release sockets even if PtyProcess has already marked itself closed.
-            try: self.process.close(force=True)
+        # A tab-close worker and application shutdown can reach this concurrently.
+        with self.close_lock:
+            if self.closed: return
+            self.closed = True
+            try: stop_tree(self.process.pid)
             finally:
-                self.process.fileobj.close()
-                self.process._server.close()
+                self.running = False
+                try: self.process.close(force=True)
+                finally:
+                    self.process.fileobj.close()
+                    self.process._server.close()
 
 
 class TerminalWorkspace(ttk.Frame):
@@ -91,6 +93,8 @@ class TerminalWorkspace(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent, padding=(0, 14))
         self.sessions = {}
+        self.retired = []
+        self.spawn_threads = []
         self.pending = queue.Queue()
         self.next_number = 1
         self.closing = False
@@ -123,7 +127,9 @@ class TerminalWorkspace(ttk.Frame):
                 if self.closing: session.close()
                 else: self.pending.put((session, None))
             except Exception as error: self.pending.put((None, str(error)))
-        threading.Thread(target=spawn, daemon=True).start()
+        worker = threading.Thread(target=spawn, daemon=True)
+        self.spawn_threads.append(worker)
+        worker.start()
 
     def attach(self, session):
         frame = ttk.Frame(self.tabs)
@@ -253,6 +259,7 @@ class TerminalWorkspace(ttk.Frame):
         if key not in self.sessions: return
         if not messagebox.askyesno('关闭终端', '关闭此终端？其中运行的命令也会结束。', parent=self): return
         session, text = self.sessions.pop(key)
+        self.retired.append(session)
         frame = text.master
         self.tabs.forget(key); frame.destroy()
         self.last_versions.pop(key, None)
@@ -260,6 +267,9 @@ class TerminalWorkspace(ttk.Frame):
 
     def shutdown(self):
         self.closing = True
+        for worker in self.spawn_threads: worker.join()
+        for session in self.retired: session.close()
+        self.retired.clear()
         for session, _ in list(self.sessions.values()): session.close()
         self.sessions.clear()
         # Include shells that finished starting while shutdown was in progress.
