@@ -2,11 +2,12 @@
 import os
 import queue
 import threading
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QKeySequence
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPlainTextEdit, QTabWidget, QTabBar, QToolButton, QPushButton, QFileDialog, QMessageBox, QMenu)
+    QSplitter, QPlainTextEdit, QTabWidget, QTabBar, QToolButton, QPushButton, QFileDialog, QMessageBox, QMenu)
 from windows.fluent import label, is_dark, themed, appearance_icon
+from windows.files import TerminalFiles, cd_command
 
 COLORS = {'black':'#181818', 'red':'#e87575', 'green':'#83cd9b', 'brown':'#e6c078',
           'blue':'#7aaef3', 'magenta':'#c694e8', 'cyan':'#6bd3ce', 'white':'#e5ebf4',
@@ -24,7 +25,7 @@ def color(value, default):
 
 class TerminalView(QPlainTextEdit):
     def __init__(self, session):
-        super().__init__(); self.session = session; self.version = -1
+        super().__init__(); self.session = session; self.version = -1; self.row_origins = []
         self.setReadOnly(True); self.setUndoRedoEnabled(False)
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
         font = QFont('Cascadia Mono', 11); font.setFamilies(['Cascadia Mono', 'Consolas', 'Menlo', 'monospace'])
@@ -75,10 +76,18 @@ class TerminalView(QPlainTextEdit):
         except (OSError, EOFError): pass
 
     def paint_screen(self):
-        version, lines, cursor, running, columns = self.session.snapshot()
+        if hasattr(self.session, 'snapshot_for_view'):
+            version, lines, cursor, running, columns, origins = self.session.snapshot_for_view()
+        else:
+            version, lines, cursor, running, columns = self.session.snapshot(); origins = []
         if version == self.version: return running
         self.version = version
-        scrollbar = self.verticalScrollBar(); bottom = scrollbar.value() >= scrollbar.maximum()-3; scroll = scrollbar.value()
+        scrollbar = self.verticalScrollBar(); bottom = scrollbar.value() == scrollbar.maximum(); scroll = scrollbar.value()
+        anchor = self.row_origins[scroll] if scroll < len(self.row_origins) else None
+        if not bottom and anchor is not None and origins:
+            # Match the same history row even when the bounded history drops old rows.
+            scroll = next((i for i, line in enumerate(origins) if line is anchor), 0)
+        self.row_origins = origins
         selected = self.textCursor(); start, end = selected.selectionStart(), selected.selectionEnd()
         self.setUpdatesEnabled(False)
         try:
@@ -118,14 +127,59 @@ class TerminalWorkspace(QWidget):
         bar = QHBoxLayout(); bar.addWidget(label('独立会话 · 切换页面继续运行', 'muted')); bar.addStretch()
         for title, callback in [('选择目录', self.choose_directory), ('＋ PowerShell', lambda:self.add(shell='powershell')), ('＋ CMD', self.add)]:
             button = QPushButton(title); button.clicked.connect(lambda checked=False, fn=callback:fn()); bar.addWidget(button)
+        self.files = TerminalFiles()
+        self.files.cdRequested.connect(self.change_directory)
+        self.files.newTerminalRequested.connect(lambda path:self.add(directory=path, shell='powershell'))
+        self.files.locateRequested.connect(self.locate_directory)
+        from pathlib import Path
+        settings_dir = Path(os.environ.get('LOCALDECK_DATA_DIR') or Path(os.environ.get('LOCALAPPDATA', str(Path.home()/'.local/share')))/'LocalDeck')
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        self.file_settings = QSettings(str(settings_dir/'terminal.ini'), QSettings.IniFormat)
+        visible = self.file_settings.value('files/visible', True, type=bool)
+        self.files.hidden.setChecked(self.file_settings.value('files/hidden', False, type=bool))
+        self.files.hidden.toggled.connect(self.save_hidden_files)
+        self.files_toggle = QPushButton(); self.files_toggle.setCheckable(True); self.files_toggle.setChecked(visible)
+        self.files_toggle.toggled.connect(self.set_files_visible); bar.insertWidget(0, self.files_toggle)
+        self.set_files_visible(visible)
         layout.addLayout(bar)
         self.tabs = QTabWidget(); self.tabs.setTabsClosable(False); self.tabs.setMovable(True); self.tabs.tabCloseRequested.connect(self.close_index)
-        self.tabs.currentChanged.connect(self.focus_terminal); layout.addWidget(self.tabs, 1)
+        self.tabs.currentChanged.connect(self.focus_terminal)
+        splitter = QSplitter(); splitter.addWidget(self.files); splitter.addWidget(self.tabs)
+        self.files.setMinimumWidth(260); self.tabs.setMinimumWidth(340)
+        splitter.setSizes([290, 750]); splitter.setStretchFactor(1, 1); layout.addWidget(splitter, 1)
         self.empty = label('准备好开始工作了吗？\n\n选择 PowerShell 或 CMD，创建第一个终端。'); self.empty.setAlignment(Qt.AlignCenter)
         self.tabs.addTab(self.empty, '终端工作区'); self.tabs.tabBar().hide()
         footer = QHBoxLayout(); self.status = label('Ctrl+C 中断命令 · Ctrl+Shift+C / V 复制粘贴', 'muted'); footer.addWidget(self.status, 1)
         layout.addLayout(footer)
         self.timer = QTimer(self); self.timer.timeout.connect(self.paint); self.timer.start(80)
+
+    def save_hidden_files(self, visible):
+        self.file_settings.setValue('files/hidden', visible); self.file_settings.sync()
+
+    def set_files_visible(self, visible):
+        self.files.setVisible(visible)
+        self.files_toggle.setText('收起文件' if visible else '展开文件')
+        self.files_toggle.setAccessibleName('收起文件面板' if visible else '展开文件面板')
+        self.file_settings.setValue('files/visible', visible); self.file_settings.sync()
+
+    def change_directory(self, path):
+        view = self.tabs.currentWidget()
+        if view not in self.sessions or not self.sessions[view][0].running:
+            self.add(directory=path, shell='powershell'); return
+        session = self.sessions[view][0]
+        try:
+            if not os.path.isdir(path): raise ValueError('目录不存在。')
+            command = cd_command(path, session.shell)
+            if not session.prompt_directory(): raise ValueError('请先回到空白 Shell 提示符，或在此目录新建终端。')
+            session.write(command); view.setFocus()
+        except (ValueError, AttributeError) as error: QMessageBox.warning(self, '切换目录', str(error))
+
+    def locate_directory(self):
+        view = self.tabs.currentWidget()
+        if view in self.sessions:
+            session = self.sessions[view][0]
+            path = session.prompt_directory() if hasattr(session, 'prompt_directory') else None
+            self.files.navigate(path or session.directory)
 
     def choose_directory(self):
         directory = QFileDialog.getExistingDirectory(self, '终端工作目录', os.path.expanduser('~'))

@@ -1,5 +1,6 @@
 """Windows ConPTY lifecycle, independent from the desktop widgets."""
 import os
+import re
 import threading
 import pyte
 from winpty import PtyProcess
@@ -15,6 +16,7 @@ class ReplyScreen(pyte.HistoryScreen):
 class TerminalSession:
     def __init__(self, directory, shell='cmd'):
         self.directory = directory
+        self.shell = shell
         self.lock = threading.RLock()
         self.close_lock = threading.Lock()
         self.error = ''
@@ -43,6 +45,16 @@ class TerminalSession:
             self.running = False
             with self.lock: self.version += 1
 
+    def prompt_directory(self):
+        with self.lock:
+            row = self.screen.buffer[self.screen.cursor.y]
+            line = ''.join(row[x].data if x in row else ' ' for x in range(self.screen.cursor.x))
+            match = re.fullmatch(r'(?:PS )?((?:[A-Za-z]:\\|\\\\)[^>\r\n]*)> ?', line)
+            if match:
+                self.directory = match.group(1)
+                return self.directory
+        return None
+
     def write(self, text):
         if not self.closed and self.running:
             try: self.process.write(text)
@@ -62,6 +74,11 @@ class TerminalSession:
             lines = [dict(line) for line in history] + [dict(self.screen.buffer[y]) for y in range(self.screen.lines)]
             cursor = (len(history) + self.screen.cursor.y, self.screen.cursor.x, self.screen.cursor.hidden)
             return self.version, lines, cursor, self.running, self.screen.columns
+
+    def snapshot_for_view(self):
+        with self.lock:
+            origins = list(self.screen.history.top) + [self.screen.buffer[y] for y in range(self.screen.lines)]
+            return (*self.snapshot(), origins)
 
     def text(self):
         _, lines, _, _, columns = self.snapshot()

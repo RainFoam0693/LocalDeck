@@ -32,6 +32,19 @@ import Darwin
         if let directory { Task { @MainActor [weak self] in self?.directory = URL(string: directory)?.path ?? directory } }
     }
     nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) { Task { @MainActor [weak self] in self?.running = false } }
+    func currentDirectory() async -> URL? {
+        let pid = view.process.shellPid
+        let result: String? = await Task.detached {
+            let task = Process(); task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+            task.arguments = ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]
+            let pipe = Pipe(); task.standardOutput = pipe; task.standardError = FileHandle.nullDevice
+            do { try task.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); task.waitUntilExit()
+                return String(data: data, encoding: .utf8)?.split(separator: "\n").first(where: { $0.hasPrefix("n/") }).map { String($0.dropFirst()) }
+            } catch { return nil }
+        }.value
+        if let result { directory = result }
+        return URL(fileURLWithPath: directory, isDirectory: true)
+    }
     func close() {
         guard running else { return }
         // Kill the foreground command as well as the login shell's process group.
@@ -49,6 +62,21 @@ import Darwin
 @MainActor final class TerminalWorkspace: ObservableObject {
     @Published var sessions: [TerminalSession] = []
     @Published var selected: UUID?
+    let files = TerminalFileBrowser()
+    @Published var showFiles = UserDefaults.standard.object(forKey: "terminalFilesVisible") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showFiles, forKey: "terminalFilesVisible") }
+    }
+    var selectedSession: TerminalSession? { sessions.first { $0.id == selected } }
+    func changeDirectory(_ url: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { throw TerminalFileError.invalidDirectory }
+        let command = try TerminalFileOperations.cdCommand(url.path)
+        guard let session = selectedSession, session.running else { add(directory: url.path); return }
+        let foreground = tcgetpgrp(session.view.process.childfd)
+        guard foreground > 0, foreground == getpgid(session.view.process.shellPid) else { throw TerminalFileError.busyTerminal }
+        session.view.send(txt: "\u{15}" + command)
+        session.view.window?.makeFirstResponder(session.view)
+    }
     private var nextNumber = 1
     func add(directory: String = NSHomeDirectory()) {
         let session = TerminalSession(number: nextNumber, directory: directory)
@@ -97,7 +125,8 @@ struct TerminalWorkspaceView: View {
             HStack {
                 Text("应用内终端").font(.system(size: 25, weight: .semibold))
                 Spacer()
-                Button { let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true; if panel.runModal() == .OK, let url = panel.url { workspace.add(directory: url.path) } } label: { Label("从目录新建", systemImage: "folder.badge.plus") }
+                Button { workspace.showFiles.toggle() } label: { Label(workspace.showFiles ? "收起文件" : "展开文件", systemImage: "sidebar.left") }.buttonStyle(DeckButton())
+                Button { chooseTerminalDirectory { workspace.add(directory: $0.path) } } label: { Label("从目录新建", systemImage: "folder.badge.plus") }
                 Button { workspace.add() } label: { Label("新终端", systemImage: "plus") }.buttonStyle(DeckButton(primary: true))
             }
             Text("每个标签独立运行 · 切换页面不中断 · ⌘C 复制 / ⌘V 粘贴 / Ctrl+C 中断命令").foregroundStyle(.secondary).font(.caption)
@@ -109,6 +138,20 @@ struct TerminalWorkspaceView: View {
                     }
                 }
             }.frame(height: 42)
+            HSplitView {
+                if workspace.showFiles {
+                    TerminalFilesPane(browser: workspace.files, cd: { try workspace.changeDirectory($0) }, newTerminal: { workspace.add(directory: $0.path) }, terminalDirectory: { await workspace.selectedSession?.currentDirectory() })
+                        .frame(minWidth: 240, idealWidth: 280, maxWidth: 380)
+                }
+                terminalContent.frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }.padding(28)
+        .confirmationDialog("关闭这个终端？其中运行的命令也会结束。", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })) {
+            Button("关闭终端", role: .destructive) { if let pending { workspace.close(pending) }; pending = nil }
+        }
+    }
+    var terminalContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if let session = workspace.sessions.first(where: { $0.id == workspace.selected }) {
                 NativeTerminal(terminal: session.view).id(session.id).clipShape(RoundedRectangle(cornerRadius: 10))
                 HStack {
@@ -124,9 +167,6 @@ struct TerminalWorkspaceView: View {
                     Button("新建终端") { workspace.add() }.buttonStyle(DeckButton(primary: true))
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }.padding(28)
-        .confirmationDialog("关闭这个终端？其中运行的命令也会结束。", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })) {
-            Button("关闭终端", role: .destructive) { if let pending { workspace.close(pending) }; pending = nil }
         }
     }
 }

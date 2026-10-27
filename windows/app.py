@@ -16,7 +16,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
     QPlainTextEdit, QFileDialog, QMessageBox, QDialog, QFormLayout, QDialogButtonBox,
-    QScrollArea, QSizePolicy, QTabBar)
+    QScrollArea, QSizePolicy, QTabBar, QComboBox, QCheckBox)
 from windows.fluent import themed, appearance_icon, VERSION, AppearanceManager, AppearanceCapsule, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
 from windows.terminal import TerminalWorkspace
 
@@ -49,6 +49,7 @@ class App(QMainWindow):
 
     def theme_changed(self, dark):
         self.native_attributes = apply_native_window(self)
+        self.settings_button.setIcon(appearance_icon('settings', themed('#b0b0b0')))
         for session, view in self.terminals.sessions.values():
             view.version = -1
             close = self.terminals.tabs.tabBar().tabButton(self.terminals.tabs.indexOf(view), QTabBar.RightSide)
@@ -75,6 +76,11 @@ class App(QMainWindow):
         nav.addWidget(label('LocalDeck '+VERSION, 'muted')); layout.addWidget(sidebar)
         content = QWidget(); content_layout = QVBoxLayout(content); content_layout.setContentsMargins(10, 12, 0, 0); content_layout.setSpacing(18)
         top = QHBoxLayout(); self.title_label = label('服务概览', 'heading'); top.addWidget(self.title_label); top.addStretch()
+        self.settings_button = self.button('', self.settings_dialog)
+        self.settings_button.setIcon(appearance_icon('settings', themed('#b0b0b0')))
+        self.settings_button.setFixedSize(38, 38)
+        self.settings_button.setStyleSheet('QPushButton { min-width: 0; padding: 0; border-radius: 19px; }')
+        self.settings_button.setAccessibleName('设置'); self.settings_button.setToolTip('设置'); top.addWidget(self.settings_button)
         self.refresh_button = self.button('刷新', self.refresh); top.addWidget(self.refresh_button)
         top.addWidget(self.button('＋ 添加启动项', self.add_dialog, 'primary')); content_layout.addLayout(top)
         caption = label('在一个工作空间，管理本机服务与终端。', 'muted'); content_layout.addWidget(caption)
@@ -86,6 +92,33 @@ class App(QMainWindow):
         self.build_live(); self.build_managed(); self.terminals = TerminalWorkspace(); self.tabs.addWidget(self.terminals)
         self.status = label('正在连接本机服务…', 'muted'); content_layout.addWidget(self.status)
         layout.addWidget(content, 1); self.select_page(0)
+
+    def settings_dialog(self):
+        dialog = QDialog(self); dialog.setWindowTitle('设置'); dialog.resize(560, 440)
+        layout = QVBoxLayout(dialog); layout.setSpacing(16)
+        layout.addWidget(label('设置', 'section'))
+        layout.addWidget(label('文件访问', 'section'))
+        text = label('Windows 使用当前账户的文件访问权限，无需开启 macOS 的“完全磁盘访问”。受保护的系统目录和其他账户文件仍按系统权限管理。', 'muted')
+        text.setWordWrap(True); layout.addWidget(text)
+        form = QFormLayout()
+        appearance = QComboBox(); appearance.addItems(['浅色', '深色', '跟随系统'])
+        appearance.setCurrentIndex(['light','dark','system'].index(self.appearance.mode))
+        appearance.currentIndexChanged.connect(lambda i:self.appearance.set_mode(['light','dark','system'][i])); form.addRow('外观', appearance)
+        visible = QCheckBox('显示终端文件面板'); visible.setChecked(self.terminals.files_toggle.isChecked())
+        visible.toggled.connect(self.terminals.files_toggle.setChecked); form.addRow(visible)
+        hidden = QCheckBox('显示隐藏文件'); hidden.setChecked(self.terminals.files.hidden.isChecked())
+        hidden.toggled.connect(self.terminals.files.hidden.setChecked); form.addRow(hidden)
+        layout.addLayout(form)
+        tip = label('向上翻阅日志时暂停跟随，回到底部自动恢复。收起文件面板不会结束会话。', 'muted'); tip.setWordWrap(True); layout.addWidget(tip)
+        layout.addStretch(); layout.addWidget(label('关于', 'section'))
+        layout.addWidget(label('LocalDeck '+VERSION, 'muted'))
+        author = panel(); author_layout = QHBoxLayout(author); author_layout.setContentsMargins(16, 12, 16, 12)
+        identity = QVBoxLayout(); identity.addWidget(label('RainFoam0693', 'section')); identity.addWidget(label('GitHub · 开发者主页', 'muted'))
+        author_layout.addLayout(identity); author_layout.addStretch()
+        author_layout.addWidget(self.button('访问主页', lambda:webbrowser.open('https://github.com/RainFoam0693')))
+        layout.addWidget(author)
+        done = QDialogButtonBox(QDialogButtonBox.Close); done.rejected.connect(dialog.reject); layout.addWidget(done)
+        dialog.exec()
 
     def build_live(self):
         page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(12)

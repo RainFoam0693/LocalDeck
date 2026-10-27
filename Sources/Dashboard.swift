@@ -44,16 +44,26 @@ enum Deck {
 }
 struct DeckButton: PrimitiveButtonStyle {
     var primary = false
+    @Environment(\.colorScheme) private var colorScheme
     @ViewBuilder func makeBody(configuration: Configuration) -> some View {
         if #available(macOS 26.0, *) {
-            if primary {
+            if primary && colorScheme == .dark {
+                // Native regular glass keeps dark surfaces subdued; prominent glass
+                // turns the accent into a bright pastel fill in dark appearance.
+                Button(configuration).buttonStyle(.glass)
+                    .tint(Color(red: 0.40, green: 0.35, blue: 0.58))
+                    .foregroundStyle(Color(red: 0.86, green: 0.83, blue: 0.96))
+                    .controlSize(.regular)
+            } else if primary {
                 Button(configuration).buttonStyle(.glassProminent).tint(Deck.accent).controlSize(.regular)
             } else {
                 Button(configuration).buttonStyle(.glass).controlSize(.regular)
             }
         } else {
             if primary {
-                Button(configuration).buttonStyle(.borderedProminent).tint(Deck.accent).controlSize(.regular)
+                Button(configuration).buttonStyle(.borderedProminent)
+                    .tint(colorScheme == .dark ? Color(red: 0.30, green: 0.26, blue: 0.43) : Deck.accent)
+                    .controlSize(.regular)
             } else {
                 Button(configuration).buttonStyle(.bordered).controlSize(.regular)
             }

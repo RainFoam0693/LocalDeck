@@ -57,6 +57,14 @@ Mac 和 Windows 都提供独立的终端工作区，可同时打开多个终端�
 
 Mac 终端烟雾测试：`dist/LocalDeck.app/Contents/MacOS/LocalDeck --terminal-smoke-test`，结果写入 `/tmp/localdeck-mac-terminal-smoke.json`。Windows 的 `--terminal-smoke-test` 会检查双标签隔离、切换页面继续输出、缩放、Ctrl+C、单标签关闭和退出清理；源码和打包 EXE 都会在 CI 中执行。
 
+## 终端文件与设置
+
+两端终端均提供可收起的文件面板，支持目录导航、隐藏文件、新建、重命名、复制路径和移到废纸篓／回收站。右键可以在当前终端 cd 到目录，或在该目录新建终端；正在执行命令时不会发送 cd。PowerShell 支持特殊字符路径，CMD 对含 `%`、`!` 或 UNC 的路径提示改用 PowerShell。文件面板显示状态会保存。
+
+向上翻阅日志后，新输出保留阅读位置；回到底部才恢复跟随。Windows 在历史缓存淘汰旧行时按日志行保持位置；Mac 构建时为固定版本 SwiftTerm 应用 `scripts/patch-swiftterm.py` 中的滚动修复，请使用 `scripts/build.sh` 构建。
+
+圆形齿轮打开设置，可切换外观、文件面板及隐藏文件，关于页提供开发者 GitHub 主页卡片。Mac 提供“完全磁盘访问权限”的系统设置入口，权限需用户在系统中手动授予；Windows 使用当前账户权限及 Windows 11 风格控件。液态玻璃仅用于 Mac。Mac 文件列表采用原生表格，目录选择使用非阻塞窗口。
+
 ## Mac 原生玻璃（本地开发版，尚未发布）
 
 macOS 26 及以上的操作按钮使用 SwiftUI 原生 `.glass` / `.glassProminent` 样式。顶部主导航与主题胶囊使用原生 `Picker`：macOS 27 及以上采用 `.tabs`，旧系统采用 `.segmented`。顶栏使用系统 bar 材质，列表、性能数据和终端正文保留实色背景。支持深浅色与跟随系统；透明度和动态效果遵循系统辅助功能设置。不使用自绘折射、手动玻璃珠动画或私有 API。

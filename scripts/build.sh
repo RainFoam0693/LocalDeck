@@ -5,6 +5,8 @@ APP="$PWD/dist/LocalDeck.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" /tmp/localdeck-module-cache
 # Pass the active SDK through both compilation and linking for native AppKit appearance.
 SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
+GITHUB_ACTIONS=true swift package --disable-sandbox resolve
+python3 scripts/patch-swiftterm.py
 GITHUB_ACTIONS=true swift build --build-system native -c release --product LocalDeck --sdk "$SDK_PATH" --disable-sandbox
 BIN_DIR=$(swift build --build-system native -c release --sdk "$SDK_PATH" --show-bin-path)
 cp "$BIN_DIR/LocalDeck" "$APP/Contents/MacOS/LocalDeck"

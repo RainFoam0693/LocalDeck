@@ -263,6 +263,15 @@ def appearance_icon(kind, color):
             painter.drawLine(QPointF(10+6*math.cos(a),10+6*math.sin(a)),QPointF(10+8*math.cos(a),10+8*math.sin(a)))
     elif kind == 'dark':
         path = QPainterPath(); path.moveTo(13.5,3); path.cubicTo(3,-1,0,15,10,17); path.cubicTo(15,18,18,14,17,11); path.cubicTo(10,15,6,7,13.5,3); painter.drawPath(path)
+    elif kind == 'settings':
+        import math
+        points = []
+        for i in range(32):
+            a = i*math.pi/16; radius = 8 if i % 4 in (1,2) else 6.2
+            points.append(QPointF(10+radius*math.cos(a), 10+radius*math.sin(a)))
+        path = QPainterPath(); path.moveTo(points[0])
+        for point in points[1:]: path.lineTo(point)
+        path.closeSubpath(); painter.drawPath(path); painter.drawEllipse(QRectF(7,7,6,6))
     elif kind == 'close':
         painter.drawLine(6,6,14,14); painter.drawLine(14,6,6,14)
     else:

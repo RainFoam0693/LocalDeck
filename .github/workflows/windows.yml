@@ -27,6 +27,13 @@ jobs:
         run: python scripts/test_performance.py
       - name: Test Windows API and process lifecycle
         run: python scripts/test_backend.py
+      - name: Test file browser and terminal scrollback
+        shell: pwsh
+        run: |
+          python windows/test_files.py
+          if ($LASTEXITCODE -ne 0) { throw 'File browser tests failed' }
+          python windows/test_terminal_scroll.py
+          if ($LASTEXITCODE -ne 0) { throw 'Terminal scrollback tests failed' }
       - name: Render Fluent UI at 100 and 150 percent
         shell: pwsh
         run: |

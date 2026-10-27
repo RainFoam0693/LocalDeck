@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftTerm
 import AppKit
 import Combine
 
@@ -92,6 +93,7 @@ struct ContentView: View {
     @State private var selectedPID: Int?
     @State private var sortByCPU = false
     @State private var adding = false
+    @State private var showingSettings = false
     @State private var pending: Listener?
     @State private var name = ""
     @State private var command = ""
@@ -133,6 +135,7 @@ struct ContentView: View {
             Button("停止进程", role: .destructive) { if let item = pending { Task { await store.act("/processes/stop", body: ["pid": item.pid, "command": item.command]) } }; pending = nil }
         }
         .sheet(isPresented: $adding) { addSheet }
+        .sheet(isPresented: $showingSettings) { DeckSettingsView(workspace: store.terminals, files: store.terminals.files) }
     }
     var workspaceBar: some View {
         HStack(spacing: 20) {
@@ -146,6 +149,8 @@ struct ContentView: View {
                 .frame(width: 480, height: 44)
             Spacer(minLength: 0)
             AppearanceControl()
+            Button { showingSettings = true } label: { Image(systemName: "gearshape").font(.system(size: 17, weight: .medium)).frame(width: 22, height: 22) }
+                .buttonStyle(SettingsGearButtonStyle()).help("设置").accessibilityLabel("设置")
         }
         .padding(.horizontal, 28).padding(.top, 30).padding(.bottom, 14)
         .background(.bar)
@@ -222,7 +227,7 @@ struct ContentView: View {
             Text("为服务保存一个固定的启动方式。").foregroundStyle(Deck.muted)
             TextField("名称，例如我的 API", text: $name)
             TextField("启动命令，例如 npm run dev", text: $command)
-            HStack { TextField("工作目录", text: $directory); Button("选择目录") { let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; if panel.runModal() == .OK { directory = panel.url?.path ?? directory } } }
+            HStack { TextField("工作目录", text: $directory); Button("选择目录") { chooseTerminalDirectory { directory = $0.path } } }
             Text("交互式命令也可以直接在终端工作区运行。").font(.caption).foregroundStyle(Deck.muted)
             HStack { Spacer(); Button("取消") { adding = false }.buttonStyle(DeckButton()); Button("保存启动项") { let body = ["name": name, "command": command, "directory": directory]; Task { await store.act("/services", body: body) }; adding = false; section = "managed"; name = ""; command = "" }.buttonStyle(DeckButton(primary: true)).disabled(name.isEmpty || command.isEmpty || directory.isEmpty) }
         }.textFieldStyle(.roundedBorder).padding(30).frame(width: 540)
@@ -252,9 +257,41 @@ struct ContentView: View {
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
             guard output(first).contains("ONE_BACKGROUND"), output(second).contains("TWO_BACKGROUND"), !output(first).contains("TWO_BACKGROUND") else { throw NSError(domain: "Background terminal continuity failed", code: 1) }
+            // Feed many independent output chunks, including beyond the history limit.
+            let scrolling = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+            scrolling.getTerminal().changeHistorySize(100)
+            scrolling.feed(text: (0..<200).map { "LOG_\($0)\r\n" }.joined())
+            scrolling.scrollUp(lines: 20)
+            let pinned = scrolling.getTerminal().getTopVisibleRow()
+            let visibleLine = scrolling.getTerminal().getLine(row: 0)
+            for number in 200..<205 { scrolling.feed(text: "LOG_\(number)\r\n") }
+            guard scrolling.getTerminal().getTopVisibleRow() == pinned - 5,
+                  scrolling.getTerminal().getLine(row: 0) === visibleLine else { throw NSError(domain: "History viewport jumped", code: 20) }
+            scrolling.scroll(toPosition: 1)
+            scrolling.feed(text: "LATEST\r\n")
+            guard scrolling.scrollPosition == 1 else { throw NSError(domain: "Live output did not resume", code: 21) }
+            let fileRoot = FileManager.default.temporaryDirectory.appendingPathComponent("LocalDeck Files " + UUID().uuidString)
+            try FileManager.default.createDirectory(at: fileRoot, withIntermediateDirectories: false)
+            defer { try? FileManager.default.removeItem(at: fileRoot) }
+            let folderName = "目录 ' $(); & space"
+            try TerminalFileOperations.create(in: fileRoot, name: folderName, folder: true)
+            try TerminalFileOperations.create(in: fileRoot, name: "sample.txt", folder: false)
+            try TerminalFileOperations.rename(fileRoot.appendingPathComponent("sample.txt"), name: "renamed.txt")
+            do { try TerminalFileOperations.create(in: fileRoot, name: "renamed.txt", folder: false); throw NSError(domain: "Overwrite allowed", code: 10) }
+            catch TerminalFileError.alreadyExists { }
+            await workspace.files.navigate(fileRoot)
+            guard workspace.files.entries.count == 2 else { throw NSError(domain: "File listing failed", code: 11) }
+            workspace.selected = first.id
+            let targetDirectory = fileRoot.appendingPathComponent(folderName)
+            try workspace.changeDirectory(targetDirectory)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            guard await first.currentDirectory()?.resolvingSymlinksInPath().path == targetDirectory.resolvingSymlinksInPath().path else { throw NSError(domain: "Quoted cd failed", code: 12) }
+            guard await second.currentDirectory()?.resolvingSymlinksInPath().path != targetDirectory.resolvingSymlinksInPath().path else { throw NSError(domain: "cd changed other tab", code: 13) }
             section = "managed"
             first.view.send(txt: "sleep 30\r")
             try await Task.sleep(nanoseconds: 300_000_000)
+            do { try workspace.changeDirectory(fileRoot); throw NSError(domain: "Busy terminal accepted cd", code: 14) }
+            catch TerminalFileError.busyTerminal { }
             first.view.send(txt: "\u{03}")
             try await Task.sleep(nanoseconds: 300_000_000)
             first.view.send(txt: "printf '%s_INTERRUPT\\n' \"$LOCALDECK_TAB\"\r")
@@ -272,7 +309,7 @@ struct ContentView: View {
             workspace.shutdown()
             try await Task.sleep(nanoseconds: 500_000_000)
             guard kill(secondPID, 0) != 0 else { throw NSError(domain: "Terminal shutdown failed", code: 4) }
-            result = ["ok": true, "tabs": 2, "pageSwitch": true, "ctrlC": true, "closeIsolation": true, "exitCleanup": true, "themeContinuity": true]
+            result = ["ok": true, "tabs": 2, "pageSwitch": true, "ctrlC": true, "closeIsolation": true, "exitCleanup": true, "themeContinuity": true, "fileListing": true, "fileOperations": true, "quotedCD": true, "busyCDGuard": true, "historyScroll": true]
         } catch { result["error"] = String(describing: error) }
         workspace.shutdown()
         if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted) { try? data.write(to: URL(fileURLWithPath: "/tmp/localdeck-mac-terminal-smoke.json")) }
