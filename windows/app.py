@@ -6,8 +6,6 @@ from pathlib import Path
 import queue
 import sys
 import threading
-import urllib.request
-import urllib.error
 import webbrowser
 
 if not getattr(sys, 'frozen', False): sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -19,6 +17,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QScrollArea, QSizePolicy, QTabBar, QComboBox, QCheckBox)
 from windows.fluent import themed, appearance_icon, VERSION, AppearanceManager, AppearanceCapsule, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
 from windows.terminal import TerminalWorkspace
+from windows.api_client import LocalAPIClient
 
 
 class App(QMainWindow):
@@ -33,7 +32,7 @@ class App(QMainWindow):
         if icon.exists(): self.setWindowIcon(QIcon(str(icon)))
         if not preview:
             from backend import server
-            self.api = server.make_server(); self.base = 'http://127.0.0.1:' + str(self.api.server_port)
+            self.api = server.make_server(); self.client = LocalAPIClient(self.api.server_port, self.api.token)
             threading.Thread(target=self.api.serve_forever, daemon=True).start()
         self.appearance = AppearanceManager(QApplication.instance(), persist=not preview)
         self.build_ui()
@@ -167,11 +166,7 @@ class App(QMainWindow):
         self.sort_cpu = not self.sort_cpu; self.sort_button.setText('默认顺序' if self.sort_cpu else '按 CPU 排序'); self.render_listeners()
 
     def request(self, path, body=None):
-        request = urllib.request.Request(self.base+path, data=json.dumps(body).encode() if body is not None else None,
-            headers={'Authorization':'Bearer '+self.api.token, 'Content-Type':'application/json'})
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response: return json.load(response)
-        except urllib.error.HTTPError as error: raise RuntimeError(json.load(error).get('error', str(error))) from error
+        return self.client.request(path, body)
 
     def submit(self, operation, callback, key='action'):
         if self.closing or self.preview or key in self.pending: return

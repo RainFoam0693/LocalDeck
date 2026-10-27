@@ -27,6 +27,8 @@ jobs:
         run: python scripts/test_performance.py
       - name: Test Windows API and process lifecycle
         run: python scripts/test_backend.py
+      - name: Test loopback API with system proxy enabled
+        run: python windows/test_api_client.py
       - name: Test file browser and terminal scrollback
         shell: pwsh
         run: |
@@ -90,8 +92,8 @@ jobs:
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-0.5.0-Windows-x64.exe
-            dist/LocalDeck-0.5.0-Windows-x64.zip
+            dist/LocalDeck-0.5.1-Windows-x64.exe
+            dist/LocalDeck-0.5.1-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -100,5 +102,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.5.0 · macOS & Windows 11' --notes-file RELEASE.md dist/LocalDeck-0.5.0-Windows-x64.exe dist/LocalDeck-0.5.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.5.1 · Windows 11 · 本机数据读取修复' --notes-file windows/RELEASE.md dist/LocalDeck-0.5.1-Windows-x64.exe dist/LocalDeck-0.5.1-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
