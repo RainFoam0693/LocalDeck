@@ -4,17 +4,20 @@ import Combine
 
 struct Service: Codable, Identifiable {
     var id: String; var name: String; var command: String; var directory: String
+    var usage: ResourceUsage? = nil
     var running: Bool; var pid: Int?; var exitCode: Int?
 }
 struct Listener: Codable, Identifiable {
     var pid: Int; var name: String; var ports: [Int]; var command: String; var directory: String
+    var usage: ResourceUsage? = nil
     var id: Int { pid }
 }
-struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Listener] }
+struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Listener]; var performance: PerformanceData? = nil }
 
 @MainActor final class Store: ObservableObject {
     let terminals = TerminalWorkspace()
     @Published var state = ServiceSnapshot(services: [], listeners: [])
+    @Published var performance: PerformanceData?
     @Published var error = ""
     @Published var ready = false
     @Published var log = "选择一个服务查看日志"
@@ -62,11 +65,16 @@ struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Liste
         defer { refreshing = false }
         do {
             state = try JSONDecoder().decode(ServiceSnapshot.self, from: await request("/state"))
+            performance = state.performance
             if let selected {
                 let data = try await request("/logs/\(selected)")
                 log = (try JSONSerialization.jsonObject(with: data) as? [String: String])?["text"] ?? ""
             }
         } catch { self.error = error.localizedDescription }
+    }
+    func refreshMetrics() async {
+        guard ready else { return }
+        if let data = try? await request("/metrics"), let metrics = try? JSONDecoder().decode(PerformanceData.self, from: data) { performance = metrics }
     }
     func act(_ path: String, body: [String: Any] = [:]) async {
         do { _ = try await request(path, body: body); await refresh() }
@@ -80,116 +88,150 @@ struct ContentView: View {
     @State private var smokeStarted = false
     @State private var section = "overview"
     @State private var search = ""
+    @State private var selectedPID: Int?
+    @State private var sortByCPU = false
     @State private var adding = false
     @State private var pending: Listener?
     @State private var name = ""
     @State private var command = ""
     @State private var directory = NSHomeDirectory()
-    let timer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
-    var listeners: [Listener] { store.state.listeners.filter { search.isEmpty || "\($0.name) \($0.command) \($0.ports)".localizedCaseInsensitiveContains(search) } }
+    @State private var ticks = 0
+    let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    var listeners: [Listener] {
+        let rows = store.state.listeners.filter { search.isEmpty || "\($0.name) \($0.command) \($0.ports)".localizedCaseInsensitiveContains(search) }
+        return sortByCPU ? rows.sorted { ($0.usage?.cpuPercent ?? -1) > ($1.usage?.cpuPercent ?? -1) } : rows
+    }
+    var selectedListener: Listener? { listeners.first(where: { $0.pid == selectedPID }) ?? listeners.first }
     var body: some View {
-        NavigationSplitView {
-            VStack(alignment: .leading, spacing: 26) {
-                HStack { Image(systemName: "square.stack.3d.up.fill").font(.title).foregroundStyle(.mint); Text("LocalDeck").font(.title2.bold()) }.padding(.top, 20)
-                Text("本机开发工作台").foregroundStyle(.secondary)
-                Button { section = "overview" } label: { Label("运行中的服务", systemImage: "network").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.bordered)
-                Button { section = "managed" } label: { Label("我的启动项", systemImage: "terminal").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.bordered)
-                Button { section = "terminals" } label: { Label("应用内终端", systemImage: "rectangle.split.3x1").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.bordered)
-                Spacer()
-                Label(store.ready ? "本机 API 已连接" : "正在连接 API", systemImage: "circle.fill").font(.caption).foregroundStyle(store.ready ? .mint : .orange)
-                Text("退出应用会停止由本应用启动的服务。").font(.caption).foregroundStyle(.secondary)
-            }.padding(20).frame(minWidth: 190)
-        } detail: {
-            if section == "terminals" {
-                TerminalWorkspaceView(workspace: store.terminals).background(Color(red: 0.065, green: 0.08, blue: 0.10))
-            } else {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(section == "overview" ? "运行中的服务" : "我的启动项").font(.largeTitle.bold())
-                        Text(section == "overview" ? "查看本机监听端口的 API、前端和开发工具" : "保存启动命令，集中管理服务与终端任务").foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button { Task { await store.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                    Button { adding = true } label: { Label("添加启动项", systemImage: "plus") }.buttonStyle(.borderedProminent).tint(.mint)
-                }
-                HStack(spacing: 16) {
-                    metric("监听进程", value: "\(store.state.listeners.count)", icon: "network")
-                    metric("开放端口", value: "\(Set(store.state.listeners.flatMap(\.ports)).count)", icon: "point.3.connected.trianglepath.dotted")
-                    metric("托管任务", value: "\(store.state.services.filter(\.running).count) / \(store.state.services.count)", icon: "terminal")
-                }
-                if section == "overview" {
-                    TextField("搜索名称、命令或端口…", text: $search).textFieldStyle(.roundedBorder)
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            if listeners.isEmpty { empty("没有找到监听端口的进程", subtitle: "启动 API 或前端服务后，会自动出现在这里。") }
-                            ForEach(listeners) { item in
-                                VStack(alignment: .leading, spacing: 12) {
-                                    HStack {
-                                        Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(.mint)
-                                        Text(item.name).font(.headline)
-                                        Text("PID \(String(item.pid))").font(.caption.monospaced()).foregroundStyle(.secondary)
-                                        Spacer()
-                                        ForEach(item.ports, id: \.self) { port in
-                                            Button(":\(String(port))") { NSWorkspace.shared.open(URL(string: "http://localhost:\(port)")!) }.font(.system(.body, design: .monospaced)).help("使用 HTTP 在浏览器打开，非 HTTP 服务可能无法显示")
-                                        }
-                                        Button("停止", role: .destructive) { pending = item }
-                                    }
-                                    Text(item.command).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(2)
-                                    if !item.directory.isEmpty { Button { NSWorkspace.shared.open(URL(fileURLWithPath: item.directory)) } label: { Label(item.directory, systemImage: "folder") }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary) }
-                                }.padding(16).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-                            }
-                        }
-                    }
+        HStack(spacing: 0) {
+            sidebar
+            VStack(spacing: 0) {
+                if section == "terminals" {
+                    TerminalWorkspaceView(workspace: store.terminals)
                 } else {
-                    HSplitView {
-                        ScrollView {
-                            VStack(spacing: 12) {
-                                if store.state.services.isEmpty { empty("添加你的第一个启动项", subtitle: "例如 npm run dev、python3 main.py 或终端脚本。") }
-                                ForEach(store.state.services) { item in
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        HStack { Circle().fill(item.running ? Color.mint : Color.gray).frame(width: 8, height: 8); Text(item.name).bold(); Spacer(); Text(item.running ? "运行中" : "已停止").font(.caption).foregroundStyle(.secondary) }
-                                        Text(item.command).font(.system(.caption, design: .monospaced)).lineLimit(2).textSelection(.enabled)
-                                        HStack {
-                                            Button(item.running ? "停止" : "启动") { Task { await store.act("/services/\(item.id)/\(item.running ? "stop" : "start")") } }
-                                            Button("重启") { Task { await store.act("/services/\(item.id)/restart") } }
-                                            Button("日志") { store.selected = item.id; Task { await store.refresh() } }
-                                            Spacer()
-                                            Button { Task { await store.act("/services/\(item.id)/delete") } } label: { Image(systemName: "trash") }.disabled(item.running)
-                                        }
-                                    }.padding(16).background(store.selected == item.id ? Color.mint.opacity(0.12) : .white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-                                }
-                            }.padding(.trailing, 10)
-                        }.frame(minWidth: 340)
-                        VStack(alignment: .leading) {
-                            Label("终端输出 · 最近 100 KB", systemImage: "terminal").font(.headline)
-                            ScrollView([.vertical, .horizontal]) { Text(store.log).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading) }.padding(12).background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
-                        }.padding(.leading, 16).frame(minWidth: 320)
-                    }
+                    VStack(alignment: .leading, spacing: 22) {
+                        header
+                        PerformanceStrip(data: store.performance)
+                        if section == "overview" { servicesPage } else { managedPage }
+                    }.padding(28)
                 }
-                Text("每 4 秒自动刷新 · 仅显示当前用户可访问的进程 · 任意终端任务可通过启动项托管").font(.caption).foregroundStyle(.secondary)
-            }.padding(28).background(Color(red: 0.065, green: 0.08, blue: 0.10))
-            }
-        }.preferredColorScheme(.dark).frame(minWidth: 1060, minHeight: 700)
+                HStack(spacing: 8) {
+                    Circle().fill(store.ready ? Deck.mint : .orange).frame(width: 5, height: 5)
+                    Text(store.ready ? "本机已连接" : "正在连接")
+                    Text("·").foregroundStyle(Deck.muted)
+                    Text("CPU 按整机容量计 · 每 2 秒采样")
+                    Spacer()
+                    Text("LOCAL WORKSPACE").tracking(1.5)
+                }.font(.system(size: 10)).foregroundStyle(Deck.muted).padding(.horizontal, 28).padding(.vertical, 12)
+            }.background(Deck.background)
+        }.background(Deck.sidebar).preferredColorScheme(.dark).frame(minWidth: 1120, minHeight: 760)
         .task { if CommandLine.arguments.contains("--terminal-smoke-test") && !smokeStarted { smokeStarted = true; await terminalSmokeTest() } }
-        .onReceive(timer) { _ in Task { await store.refresh() } }
+        .onReceive(timer) { _ in ticks += 1; Task { await store.refreshMetrics(); if ticks % 2 == 0 { await store.refresh() } } }
         .alert("操作失败", isPresented: Binding(get: { !store.error.isEmpty }, set: { if !$0 { store.error = "" } })) { Button("好") { store.error = "" } } message: { Text(store.error) }
         .confirmationDialog("停止 \(pending?.name ?? "")？未保存的工作可能丢失。", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })) {
             Button("停止进程", role: .destructive) { if let item = pending { Task { await store.act("/processes/stop", body: ["pid": item.pid, "command": item.command]) } }; pending = nil }
         }
-        .sheet(isPresented: $adding) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("添加启动项").font(.title2.bold())
-                TextField("名称，例如我的 API", text: $name)
-                TextField("启动命令，例如 npm run dev", text: $command)
-                HStack {
-                    TextField("工作目录（绝对路径）", text: $directory)
-                    Button("选择…") { let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; if panel.runModal() == .OK { directory = panel.url?.path ?? directory } }
-                }
-                Text("命令通过 zsh 执行，输出保存为日志。交互命令请使用「应用内终端」。").font(.caption).foregroundStyle(.secondary)
-                HStack { Spacer(); Button("取消") { adding = false }; Button("保存") { let body = ["name": name, "command": command, "directory": directory]; Task { await store.act("/services", body: body) }; adding = false; section = "managed"; name = ""; command = "" }.buttonStyle(.borderedProminent).disabled(name.isEmpty || command.isEmpty || directory.isEmpty) }
-            }.textFieldStyle(.roundedBorder).padding(28).frame(width: 540)
+        .sheet(isPresented: $adding) { addSheet }
+    }
+    var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 11) {
+                Image(systemName: "square.stack.3d.up.fill").font(.system(size: 25)).foregroundStyle(Deck.mint)
+                VStack(alignment: .leading, spacing: 3) { Text("LocalDeck").font(.system(size: 19, weight: .bold)); Text("DEVELOPER SPACE").font(.system(size: 8, weight: .medium)).tracking(1.9).foregroundStyle(Deck.muted) }
+            }.padding(.bottom, 40)
+            Text("工作空间").font(.system(size: 10, weight: .medium)).foregroundStyle(Deck.muted).padding(.leading, 12).padding(.bottom, 13)
+            navigation("overview", title: "服务概览", icon: "square.grid.2x2", count: store.state.listeners.count)
+            navigation("managed", title: "启动项", icon: "play.rectangle", count: store.state.services.count)
+            navigation("terminals", title: "终端工作区", icon: "terminal", count: store.terminals.sessions.count)
+            Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack { Image(systemName: "desktopcomputer"); Text("此 Mac").fontWeight(.medium); Spacer(); Circle().fill(Deck.mint).frame(width: 6, height: 6) }
+                Text("服务、性能和终端\n都在一个工作空间。").font(.system(size: 11)).foregroundStyle(Deck.muted).lineSpacing(5)
+            }.font(.system(size: 12)).padding(16).background(Deck.panel, in: RoundedRectangle(cornerRadius: 14))
+            Text("LOCALDECK  /  0.4.0").font(.system(size: 9, design: .monospaced)).tracking(1).foregroundStyle(Deck.muted.opacity(0.65)).padding(.top, 20)
+        }.padding(.horizontal, 20).padding(.top, 44).padding(.bottom, 24).frame(width: 205)
+    }
+    func navigation(_ id: String, title: String, icon: String, count: Int) -> some View {
+        Button { section = id } label: {
+            HStack(spacing: 11) { Image(systemName: icon).frame(width: 18); Text(title).font(.system(size: 12, weight: section == id ? .semibold : .regular)); Spacer(); Text(String(count)).font(.system(size: 10, design: .monospaced)).opacity(0.7) }
+                .foregroundStyle(section == id ? Deck.text : Deck.muted).padding(.horizontal, 13).padding(.vertical, 13)
+                .background(section == id ? Deck.accent.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(.plain).padding(.bottom, 5)
+    }
+    var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("工作空间  /  \(section == "overview" ? "服务概览" : "启动项")").font(.system(size: 10)).foregroundStyle(Deck.muted)
+                Text(section == "overview" ? "掌握每一个本地服务" : "让开发任务随时就绪").font(.system(size: 25, weight: .semibold))
+            }
+            Spacer()
+            Button { Task { await store.refresh(); await store.refreshMetrics() } } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(DeckButton())
+            Button { adding = true } label: { Label("添加启动项", systemImage: "plus") }.buttonStyle(DeckButton(primary: true))
         }
+    }
+    var servicesPage: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("运行中的服务").font(.system(size: 15, weight: .semibold))
+                Text("\(store.state.listeners.count) 个进程").font(.system(size: 10)).foregroundStyle(Deck.muted)
+                Spacer()
+                HStack { Image(systemName: "magnifyingglass").foregroundStyle(Deck.muted); TextField("搜索名称、端口或命令", text: $search).textFieldStyle(.plain) }.font(.system(size: 11)).padding(10).frame(width: 220).background(Deck.panel, in: RoundedRectangle(cornerRadius: 9))
+                Button { sortByCPU.toggle() } label: { Label(sortByCPU ? "CPU 优先" : "默认排序", systemImage: "arrow.up.arrow.down") }.buttonStyle(DeckButton())
+            }
+            HStack(alignment: .top, spacing: 16) {
+                ScrollView {
+                    LazyVStack(spacing: 9) {
+                        if listeners.isEmpty { DeckEmpty(title: "还没有找到服务", subtitle: "启动 API 或前端服务后，会自动出现在这里。") }
+                        ForEach(listeners) { item in
+                            ServiceRow(item: item, selected: selectedListener?.pid == item.pid) { selectedPID = item.pid }
+                        }
+                    }.padding(.bottom, 4)
+                }.frame(maxWidth: .infinity)
+                if let item = selectedListener {
+                    ServiceInspector(item: item, stop: { pending = item }).frame(width: 260)
+                }
+            }.frame(maxHeight: .infinity)
+        }
+    }
+    var managedPage: some View {
+        HStack(alignment: .top, spacing: 18) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("已保存的启动项").font(.system(size: 14, weight: .semibold)).padding(.bottom, 4)
+                    if store.state.services.isEmpty { DeckEmpty(title: "准备好第一个任务", subtitle: "保存目录与命令，下次一键启动。") }
+                    ForEach(store.state.services) { item in
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack { Circle().fill(item.running ? Deck.mint : Deck.muted).frame(width: 6, height: 6); Text(item.name).font(.system(size: 13, weight: .semibold)); Spacer(); Text(item.running ? "运行中" : "已停止").font(.system(size: 10)).foregroundStyle(Deck.muted) }
+                            Text(item.command).font(.system(size: 11, design: .monospaced)).foregroundStyle(Deck.muted).lineLimit(2)
+                            UsageLine(usage: item.usage)
+                            HStack(spacing: 8) {
+                                Button(item.running ? "停止" : "启动") { Task { await store.act("/services/\(item.id)/\(item.running ? "stop" : "start")") } }.buttonStyle(DeckButton(primary: !item.running))
+                                Button("重启") { Task { await store.act("/services/\(item.id)/restart") } }.buttonStyle(DeckButton())
+                                Button("日志") { store.selected = item.id; Task { await store.refresh() } }.buttonStyle(DeckButton())
+                                Spacer()
+                                Button { Task { await store.act("/services/\(item.id)/delete") } } label: { Image(systemName: "trash") }.buttonStyle(.plain).foregroundStyle(Deck.muted).disabled(item.running)
+                            }
+                        }.padding(18).background(store.selected == item.id ? Deck.accent.opacity(0.10) : Deck.panel, in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(store.selected == item.id ? Deck.accent.opacity(0.4) : Deck.border))
+                    }
+                }
+            }.frame(width: 345)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack { Image(systemName: "terminal").foregroundStyle(Deck.mint); Text("实时日志").font(.system(size: 12, weight: .medium)); Spacer(); Text("最近 100 KB").font(.system(size: 10)).foregroundStyle(Deck.muted) }.padding(18)
+                Rectangle().fill(Deck.border).frame(height: 1)
+                ScrollView([.vertical, .horizontal]) { Text(store.log).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading).padding(18) }
+            }.background(Deck.console, in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Deck.border))
+        }.frame(maxHeight: .infinity)
+    }
+    var addSheet: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("添加启动项").font(.title2.bold())
+            Text("为服务保存一个固定的启动方式。").foregroundStyle(Deck.muted)
+            TextField("名称，例如我的 API", text: $name)
+            TextField("启动命令，例如 npm run dev", text: $command)
+            HStack { TextField("工作目录", text: $directory); Button("选择目录") { let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; if panel.runModal() == .OK { directory = panel.url?.path ?? directory } } }
+            Text("交互式命令也可以直接在终端工作区运行。").font(.caption).foregroundStyle(Deck.muted)
+            HStack { Spacer(); Button("取消") { adding = false }.buttonStyle(DeckButton()); Button("保存启动项") { let body = ["name": name, "command": command, "directory": directory]; Task { await store.act("/services", body: body) }; adding = false; section = "managed"; name = ""; command = "" }.buttonStyle(DeckButton(primary: true)).disabled(name.isEmpty || command.isEmpty || directory.isEmpty) }
+        }.textFieldStyle(.roundedBorder).padding(30).frame(width: 540)
     }
     @MainActor func terminalSmokeTest() async {
         let workspace = store.terminals
@@ -233,12 +275,6 @@ struct ContentView: View {
         workspace.shutdown()
         if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted) { try? data.write(to: URL(fileURLWithPath: "/tmp/localdeck-mac-terminal-smoke.json")) }
         NSApp.terminate(nil)
-    }
-    func metric(_ title: String, value: String, icon: String) -> some View {
-        HStack { VStack(alignment: .leading, spacing: 10) { Text(title).foregroundStyle(.secondary); Text(value).font(.system(size: 28, weight: .semibold, design: .rounded)) }; Spacer(); Image(systemName: icon).font(.title).foregroundStyle(.mint.opacity(0.7)) }.padding(20).frame(maxWidth: .infinity).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
-    }
-    func empty(_ title: String, subtitle: String) -> some View {
-        VStack(spacing: 12) { Image(systemName: "terminal").font(.largeTitle).foregroundStyle(.mint); Text(title).font(.headline); Text(subtitle).foregroundStyle(.secondary) }.frame(maxWidth: .infinity).padding(50)
     }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {

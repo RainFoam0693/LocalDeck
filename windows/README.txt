@@ -1,4 +1,4 @@
-LocalDeck 0.3.1 for Windows x64
+LocalDeck 0.4.0 for Windows x64
 
 Double-click LocalDeck.exe to launch. Python and Tcl/Tk are bundled.
 Windows 10/11 x64. No administrator privileges requested.

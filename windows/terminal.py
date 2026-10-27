@@ -100,8 +100,8 @@ class TerminalWorkspace(ttk.Frame):
         self.closing = False
         self.last_versions = {}
         self.font = tkfont.Font(family='Consolas', size=11)
+        ttk.Label(self, text='独立 Shell · 切换页面继续运行 · Ctrl+C 中断 · Ctrl+Shift+C/V 复制粘贴', style='Muted.TLabel', font=('Segoe UI', 9)).pack(anchor='w', pady=(0, 12))
         bar = ttk.Frame(self); bar.pack(fill='x', pady=(0, 10))
-        ttk.Label(bar, text='独立 Shell · 切换页面继续运行 · Ctrl+C 中断 · Ctrl+Shift+C/V 复制粘贴').pack(side='left')
         ttk.Button(bar, text='＋ CMD', command=self.add).pack(side='right')
         ttk.Button(bar, text='＋ PowerShell', command=lambda: self.add(shell='powershell')).pack(side='right', padx=6)
         ttk.Button(bar, text='选择目录…', command=self.choose_directory).pack(side='right')

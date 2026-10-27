@@ -17,19 +17,20 @@ if not getattr(sys, 'frozen', False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend import server
 from windows.terminal import TerminalWorkspace
+from windows.dashboard import *
 
-BG = '#10151e'
-PANEL = '#1b2432'
+BG = '#0e1017'
+PANEL = '#161b25'
 TEXT = '#e7edf6'
-MUTED = '#9aaabd'
-ACCENT = '#34dfbd'
+MUTED = '#7b879f'
+ACCENT = '#a094fa'
 
 
 class App(tk.Tk):
     def __init__(self, smoke=False):
         super().__init__()
         self.title('LocalDeck · Windows')
-        self.geometry('1180x780'); self.minsize(960, 640)
+        self.geometry('1310x850'); self.minsize(1160, 760)
         self.configure(bg=BG)
         self.smoke = smoke
         self.closing = False
@@ -57,67 +58,89 @@ class App(tk.Tk):
         style.configure('TFrame', background=BG)
         style.configure('TLabel', background=BG, foreground=TEXT)
         style.configure('Muted.TLabel', foreground=MUTED)
-        style.configure('Title.TLabel', font=('Segoe UI', 26, 'bold'))
-        style.configure('TButton', background=PANEL, foreground=TEXT, padding=(14, 9), borderwidth=0)
-        style.map('TButton', background=[('active', '#2b3c50'), ('disabled', '#19202b')], foreground=[('disabled', MUTED)])
-        style.configure('Accent.TButton', background=ACCENT, foreground='#0c2420')
-        style.map('Accent.TButton', background=[('active', '#73efdb')])
-        style.configure('Treeview', background=PANEL, fieldbackground=PANEL, foreground=TEXT, rowheight=38, borderwidth=0)
-        style.configure('Treeview.Heading', background='#243144', foreground=MUTED, padding=10)
-        style.map('Treeview', background=[('selected', '#20594f')])
+        style.configure('TButton', background='#252b3a', foreground=TEXT, padding=(15, 10), borderwidth=0, relief='flat')
+        style.map('TButton', background=[('active', '#343c51'), ('disabled', '#19202b')], foreground=[('disabled', MUTED)])
+        style.configure('Accent.TButton', background=ACCENT, foreground='#141324')
+        style.map('Accent.TButton', background=[('active', '#b6adff')])
+        style.configure('TEntry', fieldbackground=PANEL, foreground=TEXT, insertcolor=TEXT, padding=10, borderwidth=0)
         style.configure('TNotebook', background=BG, borderwidth=0)
-        style.configure('TNotebook.Tab', background=PANEL, foreground=MUTED, padding=(20, 12))
-        style.map('TNotebook.Tab', background=[('selected', '#20594f')], foreground=[('selected', TEXT)])
-        style.configure('TEntry', fieldbackground=PANEL, foreground=TEXT, insertcolor=TEXT, padding=8)
-        outer = ttk.Frame(self, padding=26); outer.pack(fill='both', expand=True)
+        style.configure('TNotebook.Tab', background=PANEL, foreground=MUTED, padding=(17, 11))
+        style.map('TNotebook.Tab', background=[('selected', '#2c2a46')], foreground=[('selected', TEXT)])
+        style.layout('Pages.TNotebook.Tab', [])
+        style.configure('Vertical.TScrollbar', background='#293245', troughcolor=BG, borderwidth=0, arrowsize=8)
+        sidebar = tk.Frame(self, bg=SIDEBAR, width=206); sidebar.pack(side='left', fill='y'); sidebar.pack_propagate(False)
+        brand = tk.Frame(sidebar, bg=SIDEBAR); brand.pack(fill='x', padx=22, pady=(40, 3))
+        tk.Label(brand, text='◈', bg=SIDEBAR, fg=MINT, font=('Segoe UI', 26)).pack(side='left', padx=(0,9))
+        tk.Label(brand, text='LocalDeck', bg=SIDEBAR, fg=TEXT, font=('Segoe UI', 17, 'bold')).pack(side='left')
+        tk.Label(sidebar, text='D E V E L O P E R  S P A C E', bg=SIDEBAR, fg=MUTED, font=('Segoe UI',7)).pack(anchor='w', padx=27)
+        tk.Label(sidebar, text='工作空间', bg=SIDEBAR, fg=MUTED, font=('Segoe UI',9)).pack(anchor='w', padx=30, pady=(38,13))
+        self.nav_buttons = []
+        for index, title in enumerate(['▦   服务概览', '▷   启动项', '›_   终端工作区']):
+            button = tk.Button(sidebar, text=title, font=('Segoe UI',11), anchor='w', bg=SIDEBAR, fg=MUTED, activebackground='#29263f', activeforeground=TEXT, relief='flat', bd=0, padx=16, pady=13, cursor='hand2', command=lambda i=index:self.tabs.select(i))
+            button.pack(fill='x', padx=16, pady=3); self.nav_buttons.append(button)
+        tk.Label(sidebar, text='LOCALDECK  /  0.4.0', bg=SIDEBAR, fg=MUTED, font=('Consolas',8)).pack(side='bottom', anchor='w', padx=25, pady=25)
+        tk.Label(sidebar, text='●  此 Windows PC\n\n服务、性能和终端\n都在一个工作空间。', justify='left', bg=SIDEBAR, fg=MUTED, font=('Segoe UI',10)).pack(side='bottom', anchor='w', padx=27, pady=15)
+        outer = ttk.Frame(self, padding=(28,28,28,0)); outer.pack(fill='both', expand=True)
         heading = ttk.Frame(outer); heading.pack(fill='x')
-        ttk.Label(heading, text='LocalDeck', style='Title.TLabel').pack(side='left')
-        ttk.Button(heading, text='＋ 添加启动项', style='Accent.TButton', command=self.add_dialog).pack(side='right')
-        self.refresh_button = ttk.Button(heading, text='刷新', command=self.refresh); self.refresh_button.pack(side='right', padx=10)
-        ttk.Label(outer, text='本机开发工作台 · API、前端服务与终端任务', style='Muted.TLabel').pack(anchor='w', pady=(5, 20))
-        self.stats = ttk.Label(outer, text='正在连接本机 API…', font=('Segoe UI', 13, 'bold'))
-        self.stats.pack(fill='x', pady=(0, 20))
-        self.tabs = ttk.Notebook(outer); self.tabs.pack(fill='both', expand=True)
-        live = ttk.Frame(self.tabs, padding=(0, 16)); managed = ttk.Frame(self.tabs, padding=(0, 16))
-        self.tabs.add(live, text='运行中的服务'); self.tabs.add(managed, text='我的启动项 / 日志')
-        self.terminals = TerminalWorkspace(self.tabs)
-        self.tabs.add(self.terminals, text='应用内终端')
-        ttk.Entry(live, textvariable=self.search).pack(fill='x', pady=(0, 12))
-        self.live_tree = self.tree(live, [('name', '进程', 155), ('pid', 'PID', 75), ('ports', '端口', 130), ('command', '命令', 480)])
-        self.live_tree.bind('<<TreeviewSelect>>', self.show_directory)
-        self.live_tree.bind('<Double-1>', lambda _: self.open_port())
-        self.directory_text = ttk.Label(live, text='选择进程查看目录；双击可打开首个端口。', style='Muted.TLabel', wraplength=950)
-        self.directory_text.pack(anchor='w', pady=12)
-        actions = ttk.Frame(live); actions.pack(fill='x')
-        ttk.Button(actions, text='浏览器打开', command=self.open_port).pack(side='left')
-        ttk.Button(actions, text='打开目录', command=self.open_directory).pack(side='left', padx=8)
-        ttk.Button(actions, text='停止进程…', command=self.stop_external).pack(side='right')
-        panes = ttk.Panedwindow(managed, orient='vertical'); panes.pack(fill='both', expand=True)
-        task_panel = ttk.Frame(panes); log_panel = ttk.Frame(panes)
-        panes.add(task_panel, weight=1); panes.add(log_panel, weight=1)
-        self.task_tree = self.tree(task_panel, [('name', '启动项', 160), ('state', '状态', 90), ('command', '命令', 480)])
-        self.task_tree.bind('<<TreeviewSelect>>', self.select_log)
-        task_actions = ttk.Frame(task_panel); task_actions.pack(fill='x', pady=10)
-        for text, verb in [('启动', 'start'), ('停止', 'stop'), ('重启', 'restart'), ('删除…', 'delete')]:
-            ttk.Button(task_actions, text=text, command=lambda v=verb: self.service_action(v)).pack(side='left', padx=(0, 8))
-        ttk.Label(log_panel, text='终端输出 · 最近 100 KB', style='Muted.TLabel').pack(anchor='w', pady=8)
-        self.log = tk.Text(log_panel, bg='#090e16', fg=TEXT, insertbackground=TEXT, font=('Consolas', 10), wrap='none', relief='flat', height=9, padx=14, pady=12, state='disabled')
-        scrollbar = ttk.Scrollbar(log_panel, command=self.log.yview); scrollbar.pack(side='right', fill='y')
-        self.log.configure(yscrollcommand=scrollbar.set); self.log.pack(fill='both', expand=True)
-        self.status = ttk.Label(outer, text='每 4 秒刷新 · 退出会停止本应用启动的任务 · 应用内终端支持独立多标签', style='Muted.TLabel')
-        self.status.pack(anchor='w', pady=(15, 0))
+        titles = ttk.Frame(heading); titles.pack(side='left')
+        self.breadcrumb = ttk.Label(titles, text='工作空间  /  服务概览', style='Muted.TLabel', font=('Segoe UI',9)); self.breadcrumb.pack(anchor='w')
+        self.page_title = ttk.Label(titles, text='掌握每一个本地服务', font=('Segoe UI',23,'bold')); self.page_title.pack(anchor='w', pady=(8,0))
+        ttk.Button(heading,text='＋ 添加启动项',style='Accent.TButton',command=self.add_dialog).pack(side='right')
+        self.refresh_button=ttk.Button(heading,text='↻',command=self.refresh);self.refresh_button.pack(side='right',padx=10)
+        self.performance = PerformanceStrip(outer); self.performance.pack(fill='x', pady=(24,22))
+        self.tabs = ttk.Notebook(outer, style='Pages.TNotebook'); self.tabs.pack(fill='both',expand=True)
+        live = ttk.Frame(self.tabs); managed = ttk.Frame(self.tabs)
+        self.tabs.add(live,text='服务概览'); self.tabs.add(managed,text='启动项')
+        self.terminals = TerminalWorkspace(self.tabs); self.tabs.add(self.terminals,text='终端工作区')
+        self.tabs.bind('<<NotebookTabChanged>>', self.page_changed)
+        toolbar=ttk.Frame(live);toolbar.pack(fill='x',pady=(0,14))
+        ttk.Label(toolbar,text='运行中的服务',font=('Segoe UI',12,'bold')).pack(side='left')
+        self.stats=ttk.Label(toolbar,text='正在扫描…',style='Muted.TLabel',font=('Segoe UI',9));self.stats.pack(side='left',padx=12)
+        self.sort_cpu = False
+        ttk.Button(toolbar,text='CPU 排序',command=self.toggle_sort).pack(side='right')
+        ttk.Entry(toolbar,textvariable=self.search,width=28).pack(side='right',padx=10)
+        body=ttk.Frame(live);body.pack(fill='both',expand=True)
+        detail=ttk.Frame(body);detail.pack(side='right',fill='y',padx=(16,0))
+        self.inspector=Inspector(detail)
+        detail_actions=ttk.Frame(detail);detail_actions.pack(side='bottom',fill='x',pady=10)
+        ttk.Button(detail_actions,text='打开服务',command=self.open_port).pack(side='left')
+        ttk.Button(detail_actions,text='目录',command=self.open_directory).pack(side='left',padx=7)
+        ttk.Button(detail_actions,text='停止…',command=self.stop_external).pack(side='right')
+        self.inspector.pack(fill='both',expand=True)
+        self.live_tree=self.tree(body,[('name','进程',155),('pid','PID',75),('ports','端口',130),('command','命令',480)])
+        self.live_tree.bind('<<TreeviewSelect>>',self.show_directory);self.live_tree.bind('<Double-1>',lambda _:self.open_port())
+        self.directory_text=ttk.Label(live,text='',style='Muted.TLabel')
+        task_left=ttk.Frame(managed,width=360);task_left.pack(side='left',fill='both',padx=(0,18));task_left.pack_propagate(False)
+        ttk.Label(task_left,text='已保存的启动项',font=('Segoe UI',12,'bold')).pack(anchor='w',pady=(0,14))
+        self.task_tree=self.tree(task_left,[('name','启动项',160),('state','状态',90),('command','命令',480)])
+        self.task_tree.bind('<<TreeviewSelect>>',self.select_log)
+        task_actions=ttk.Frame(task_left);task_actions.pack(fill='x',pady=12)
+        for text,verb in [('启动','start'),('停止','stop'),('重启','restart'),('删除…','delete')]:
+            ttk.Button(task_actions,text=text,command=lambda v=verb:self.service_action(v)).pack(side='left',padx=(0,6))
+        log_panel=ttk.Frame(managed);log_panel.pack(fill='both',expand=True)
+        log_heading=ttk.Frame(log_panel);log_heading.pack(fill='x',pady=(0,14))
+        ttk.Label(log_heading,text='›_  实时日志',font=('Segoe UI',12,'bold')).pack(side='left')
+        ttk.Label(log_heading,text='最近 100 KB',style='Muted.TLabel',font=('Segoe UI',9)).pack(side='right')
+        self.log=tk.Text(log_panel,bg=CONSOLE,fg=TEXT,insertbackground=TEXT,font=('Consolas',10),wrap='none',relief='flat',height=9,padx=18,pady=18,state='disabled')
+        scrollbar=ttk.Scrollbar(log_panel,command=self.log.yview);scrollbar.pack(side='right',fill='y');self.log.configure(yscrollcommand=scrollbar.set);self.log.pack(fill='both',expand=True)
+        self.status=ttk.Label(outer,text='本机已连接 · CPU 按整机容量计 · 每 2 秒采样',style='Muted.TLabel',font=('Segoe UI',9));self.status.pack(anchor='w',pady=15)
+        self.after(1000,self.metrics_tick)
 
-    def tree(self, parent, columns):
-        frame = ttk.Frame(parent); frame.pack(fill='both', expand=True)
-        tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show='headings', selectmode='browse', height=7)
-        for key, label, width in columns:
-            tree.heading(key, text=label); tree.column(key, width=width, minwidth=65, stretch=key == 'command')
-        vertical = ttk.Scrollbar(frame, orient='vertical', command=tree.yview)
-        horizontal = ttk.Scrollbar(frame, orient='horizontal', command=tree.xview)
-        tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
-        frame.columnconfigure(0, weight=1); frame.rowconfigure(0, weight=1)
-        tree.grid(row=0, column=0, sticky='nsew'); vertical.grid(row=0, column=1, sticky='ns'); horizontal.grid(row=1, column=0, sticky='ew')
-        return tree
+    def page_changed(self, _=None):
+        index=self.tabs.index(self.tabs.select())
+        for i,button in enumerate(self.nav_buttons):button.configure(bg='#29263f' if i==index else SIDEBAR,fg=TEXT if i==index else MUTED)
+        self.breadcrumb.configure(text='工作空间  /  '+['服务概览','启动项','终端工作区'][index])
+        self.page_title.configure(text=['掌握每一个本地服务','让开发任务随时就绪','让每个想法持续运行'][index])
+
+    def toggle_sort(self):self.sort_cpu=not self.sort_cpu;self.render_listeners()
+
+    def metrics_tick(self):
+        if self.closing:return
+        self.submit(lambda:self.request('/metrics'), self.performance.update_data)
+        self.after(2000,self.metrics_tick)
+
+    def tree(self,parent,columns):
+        cards=ServiceCards(parent,columns);cards.pack(fill='both',expand=True);return cards
 
     def request(self, path, body=None):
         request = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
@@ -174,20 +197,36 @@ class App(tk.Tk):
 
     def render(self, data):
         self.data = data
+        self.performance.update_data(data.get('performance'))
+        self.live_tree.resources = {str(item['pid']): item.get('usage') for item in data['listeners']}
+        self.task_tree.resources = {item['id']: item.get('usage') for item in data['services']}
         self.render_listeners()
         self.replace_rows(self.task_tree, {item['id']: (item['name'], '运行中' if item['running'] else '已停止', item['command']) for item in data['services']})
         ports = {port for item in data['listeners'] for port in item['ports']}
         running = sum(item['running'] for item in data['services'])
-        self.stats.configure(text=f"监听进程  {len(data['listeners'])}     ·     开放端口  {len(ports)}     ·     托管任务  {running} / {len(data['services'])}")
-        self.status.configure(text='本机 API 已连接 · 每 4 秒刷新 · 退出会停止本应用启动的任务')
+        self.stats.configure(text=f"{len(data['listeners'])} 个进程 · {len(ports)} 个端口")
+        self.status.configure(text='● 本机已连接 · CPU 按整机容量计 · 每 2 秒采样')
         if 'log' in data: self.set_log(data['log'])
         if self.smoke:
-            (server.ROOT / 'smoke-result.json').write_text(json.dumps({'ok': True, 'listeners': len(data['listeners']), 'api': self.base}), encoding='utf-8')
+            metrics = data.get('performance') or {}
+            if not metrics.get('available') or metrics.get('system', {}).get('cpuPercent') is None:
+                self.after(400, self.refresh)
+                return
+            (server.ROOT / 'smoke-result.json').write_text(json.dumps({'ok': True, 'listeners': len(data['listeners']), 'api': self.base, 'metrics': True}), encoding='utf-8')
             self.after(300, self.close)
 
     def render_listeners(self):
+        if not hasattr(self, 'live_tree'): return
         query = self.search.get().casefold()
-        self.replace_rows(self.live_tree, {str(item['pid']): (item['name'], item['pid'], ', '.join(map(str, item['ports'])), item['command'] or '无权限读取') for item in self.data['listeners'] if query in str(item).casefold()})
+        rows = [item for item in self.data['listeners'] if query in str(item).casefold()]
+        if self.sort_cpu: rows.sort(key=lambda item:(item.get('usage') or {}).get('cpuPercent') or 0, reverse=True)
+        self.replace_rows(self.live_tree, {str(item['pid']):(item['name'],item['pid'],', '.join(map(str,item['ports'])),item['command'] or '无权限读取') for item in rows})
+        # Keep ordering stable across updates and reflect resource-based sorting.
+        keys=[str(item['pid']) for item in rows]
+        self.live_tree.rows={key:self.live_tree.rows[key] for key in keys}
+        if not self.live_tree.selection() and keys:self.live_tree.selection_set(keys[0])
+        self.live_tree.schedule()
+        self.show_directory()
 
     def selected_listener(self):
         selected = self.live_tree.selection()
@@ -196,6 +235,7 @@ class App(tk.Tk):
     def show_directory(self, _=None):
         item = self.selected_listener()
         self.directory_text.configure(text=(item['directory'] or '无法读取此进程的工作目录') if item else '选择进程查看目录。')
+        self.inspector.update_item(item)
 
     def open_port(self):
         item = self.selected_listener()

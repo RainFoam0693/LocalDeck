@@ -3,6 +3,12 @@
 import argparse, json, os, pathlib, secrets, signal, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+try:
+    from backend.performance import Sampler
+except ModuleNotFoundError:
+    from performance import Sampler
+
+METRICS = None
 IS_WINDOWS = os.name == 'nt'
 if IS_WINDOWS:
     try:
@@ -58,7 +64,11 @@ def snapshot():
             item['running'] = p is not None and p.poll() is None
             item['pid'] = p.pid if item['running'] else None
             item['exitCode'] = p.poll() if p else None
-        return {'services': services, 'listeners': listeners()}
+        live = listeners()
+        if METRICS:
+            for item in services: item['usage'] = METRICS.usage(item['pid'], descendants=True)
+            for item in live: item['usage'] = METRICS.usage(item['pid'])
+        return {'services': services, 'listeners': live, 'performance': METRICS.snapshot() if METRICS else None}
 
 def stop(item_id):
     p = CHILDREN.get(item_id)
@@ -123,6 +133,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.authorized(): return self.respond(401, {'error': 'Unauthorized'})
         try:
+            if self.path == '/metrics': return self.respond(200, METRICS.snapshot())
             if self.path == '/state': return self.respond(200, snapshot())
             if self.path.startswith('/logs/'):
                 key = self.path.split('/')[-1]
@@ -144,6 +155,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e: self.respond(400, {'error': str(e)})
 
 def make_server(port=0):
+    global METRICS
+    if METRICS is None: METRICS = Sampler()
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     server.token = secrets.token_urlsafe(32)
     return server

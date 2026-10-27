@@ -89,10 +89,10 @@ struct TerminalWorkspaceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("应用内终端").font(.largeTitle.bold())
+                Text("应用内终端").font(.system(size: 25, weight: .semibold))
                 Spacer()
                 Button { let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true; if panel.runModal() == .OK, let url = panel.url { workspace.add(directory: url.path) } } label: { Label("从目录新建", systemImage: "folder.badge.plus") }
-                Button { workspace.add() } label: { Label("新终端", systemImage: "plus") }.buttonStyle(.borderedProminent).tint(.mint)
+                Button { workspace.add() } label: { Label("新终端", systemImage: "plus") }.buttonStyle(DeckButton(primary: true))
             }
             Text("每个标签独立运行 · 切换页面不中断 · ⌘C 复制 / ⌘V 粘贴 / Ctrl+C 中断命令").foregroundStyle(.secondary).font(.caption)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -115,7 +115,7 @@ struct TerminalWorkspaceView: View {
                     Image(systemName: "terminal").font(.system(size: 48)).foregroundStyle(.mint)
                     Text("打开一个终端，开始工作").font(.title2.bold())
                     Text("切换到服务列表或启动项页面后，终端仍会继续运行。").foregroundStyle(.secondary)
-                    Button("新建终端") { workspace.add() }.buttonStyle(.borderedProminent)
+                    Button("新建终端") { workspace.add() }.buttonStyle(DeckButton(primary: true))
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }.padding(28)
@@ -133,6 +133,6 @@ struct TerminalTab: View {
         HStack(spacing: 10) {
             Button(action: select) { HStack { Circle().fill(session.running ? Color.mint : .gray).frame(width: 7, height: 7); Text(session.title).lineLimit(1) } }.buttonStyle(.plain)
             Button(action: close) { Image(systemName: "xmark").font(.caption) }.buttonStyle(.plain).help("关闭会话")
-        }.padding(.horizontal, 14).padding(.vertical, 10).background(selected ? Color.mint.opacity(0.18) : .white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        }.padding(.horizontal, 14).padding(.vertical, 10).background(selected ? Deck.accent.opacity(0.18) : Deck.panel, in: RoundedRectangle(cornerRadius: 8))
     }
 }

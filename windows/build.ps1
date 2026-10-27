@@ -8,14 +8,14 @@ $notices = (Resolve-Path build/third-party).Path
 $icon = (Resolve-Path assets/LocalDeck.ico).Path
 python -m PyInstaller --noconfirm --clean --onefile --windowed --name LocalDeck --icon "$icon" --add-data "$icon;assets" --add-data "$notices;third-party" --hidden-import backend.windows_platform --collect-all winpty --paths . --distpath dist/windows --workpath build/windows --specpath build windows/app.py
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed' }
-$package = 'dist/LocalDeck-0.3.1-Windows-x64'
+$package = 'dist/LocalDeck-0.4.0-Windows-x64'
 New-Item -ItemType Directory -Force $package | Out-Null
 Copy-Item dist/windows/LocalDeck.exe $package
 Copy-Item windows/README.txt "$package/README.txt"
 Copy-Item build/third-party "$package/third-party" -Recurse -Force
 Compress-Archive -Path "$package/*" -DestinationPath "$package.zip" -Force
-Copy-Item dist/windows/LocalDeck.exe dist/LocalDeck-0.3.1-Windows-x64.exe
-$names = @('LocalDeck-0.3.1-Windows-x64.exe', 'LocalDeck-0.3.1-Windows-x64.zip')
+Copy-Item dist/windows/LocalDeck.exe dist/LocalDeck-0.4.0-Windows-x64.exe
+$names = @('LocalDeck-0.4.0-Windows-x64.exe', 'LocalDeck-0.4.0-Windows-x64.zip')
 $lines = foreach ($name in $names) {
     $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $name"
