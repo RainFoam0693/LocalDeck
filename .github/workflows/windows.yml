@@ -27,6 +27,21 @@ jobs:
         run: python scripts/test_performance.py
       - name: Test Windows API and process lifecycle
         run: python scripts/test_backend.py
+      - name: Render Fluent UI at 100 and 150 percent
+        shell: pwsh
+        run: |
+          $env:QT_SCALE_FACTOR = '1'
+          $env:LOCALDECK_UI_OUTPUT = 'dist/windows-preview/100'
+          python windows/test_ui.py
+          if ($LASTEXITCODE -ne 0) { throw 'UI render failed' }
+          $env:QT_SCALE_FACTOR = '1.5'
+          $env:LOCALDECK_UI_OUTPUT = 'dist/windows-preview/150'
+          python windows/test_ui.py
+          if ($LASTEXITCODE -ne 0) { throw 'High-DPI UI render failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-11-UI-preview
+          path: dist/windows-preview/
       - name: Test desktop UI
         shell: pwsh
         run: |
@@ -68,8 +83,8 @@ jobs:
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-0.4.0-Windows-x64.exe
-            dist/LocalDeck-0.4.0-Windows-x64.zip
+            dist/LocalDeck-0.5.0-Windows-x64.exe
+            dist/LocalDeck-0.5.0-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -78,5 +93,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.4.0 · Windows' --notes-file windows/RELEASE.md dist/LocalDeck-0.4.0-Windows-x64.exe dist/LocalDeck-0.4.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.5.0 · Windows' --notes-file windows/RELEASE.md dist/LocalDeck-0.5.0-Windows-x64.exe dist/LocalDeck-0.5.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

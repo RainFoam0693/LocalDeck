@@ -1,340 +1,297 @@
-"""LocalDeck Windows desktop. Tk/Tcl and Python are bundled in the release EXE."""
+"""LocalDeck for Windows 11: Qt desktop with native DWM window chrome."""
 import concurrent.futures
 import json
 import os
 from pathlib import Path
 import queue
-import secrets
 import sys
 import threading
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import urllib.request
 import urllib.error
 import webbrowser
 
-if not getattr(sys, 'frozen', False):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from backend import server
+if not getattr(sys, 'frozen', False): sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QStackedWidget, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
+    QPlainTextEdit, QFileDialog, QMessageBox, QDialog, QFormLayout, QDialogButtonBox,
+    QScrollArea, QSizePolicy)
+from windows.fluent import VERSION, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
 from windows.terminal import TerminalWorkspace
-from windows.dashboard import *
-
-BG = '#0e1017'
-PANEL = '#161b25'
-TEXT = '#e7edf6'
-MUTED = '#7b879f'
-ACCENT = '#a094fa'
 
 
-class App(tk.Tk):
-    def __init__(self, smoke=False):
+class App(QMainWindow):
+    def __init__(self, smoke=False, preview=False):
         super().__init__()
-        self.title('LocalDeck · Windows')
-        self.geometry('1310x850'); self.minsize(1160, 760)
-        self.configure(bg=BG)
-        self.smoke = smoke
-        self.closing = False
-        self.busy = False
-        self.selected_log = None
-        self.data = {'services': [], 'listeners': []}
-        self.results = queue.Queue()
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        self.api = server.make_server()
-        threading.Thread(target=self.api.serve_forever, daemon=True).start()
-        self.base = 'http://127.0.0.1:' + str(self.api.server_port)
-        self.search = tk.StringVar()
-        self.search.trace_add('write', lambda *_: self.render_listeners())
+        self.smoke = smoke; self.preview = preview; self.closing = False; self.closed = False
+        self.data = {'services': [], 'listeners': []}; self.selected_log = None; self.sort_cpu = False
+        self.results = queue.Queue(); self.pending = set(); self.errors = []
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        self.setWindowTitle('LocalDeck'); self.resize(1320, 860); self.setMinimumSize(1050, 700)
         icon = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1])) / 'assets/LocalDeck.ico'
-        if icon.exists(): self.iconbitmap(str(icon))
+        if icon.exists(): self.setWindowIcon(QIcon(str(icon)))
+        if not preview:
+            from backend import server
+            self.api = server.make_server(); self.base = 'http://127.0.0.1:' + str(self.api.server_port)
+            threading.Thread(target=self.api.serve_forever, daemon=True).start()
         self.build_ui()
-        self.protocol('WM_DELETE_WINDOW', self.close)
-        self.after(80, self.poll)
-        self.refresh()
-        self.after(4000, self.tick)
+        self.poll_timer = QTimer(self); self.poll_timer.timeout.connect(self.poll); self.poll_timer.start(60)
+        self.refresh_timer = QTimer(self); self.refresh_timer.timeout.connect(self.refresh); self.refresh_timer.start(4000)
+        self.metric_timer = QTimer(self); self.metric_timer.timeout.connect(self.metrics_tick); self.metric_timer.start(2000)
+        self.native_attributes = apply_native_window(self)
+        if preview:
+            from windows.preview import fixture
+            self.render(fixture())
+        else: self.refresh()
+
+    def button(self, text, callback, name=None):
+        widget = QPushButton(text)
+        if name: widget.setObjectName(name)
+        widget.clicked.connect(lambda checked=False:callback()); return widget
 
     def build_ui(self):
-        style = ttk.Style(self); style.theme_use('clam')
-        style.configure('.', font=('Segoe UI', 10), background=BG, foreground=TEXT)
-        style.configure('TFrame', background=BG)
-        style.configure('TLabel', background=BG, foreground=TEXT)
-        style.configure('Muted.TLabel', foreground=MUTED)
-        style.configure('TButton', background='#252b3a', foreground=TEXT, padding=(15, 10), borderwidth=0, relief='flat')
-        style.map('TButton', background=[('active', '#343c51'), ('disabled', '#19202b')], foreground=[('disabled', MUTED)])
-        style.configure('Accent.TButton', background=ACCENT, foreground='#141324')
-        style.map('Accent.TButton', background=[('active', '#b6adff')])
-        style.configure('TEntry', fieldbackground=PANEL, foreground=TEXT, insertcolor=TEXT, padding=10, borderwidth=0)
-        style.configure('TNotebook', background=BG, borderwidth=0)
-        style.configure('TNotebook.Tab', background=PANEL, foreground=MUTED, padding=(17, 11))
-        style.map('TNotebook.Tab', background=[('selected', '#2c2a46')], foreground=[('selected', TEXT)])
-        style.layout('Pages.TNotebook.Tab', [])
-        style.configure('Vertical.TScrollbar', background='#293245', troughcolor=BG, borderwidth=0, arrowsize=8)
-        sidebar = tk.Frame(self, bg=SIDEBAR, width=206); sidebar.pack(side='left', fill='y'); sidebar.pack_propagate(False)
-        brand = tk.Frame(sidebar, bg=SIDEBAR); brand.pack(fill='x', padx=22, pady=(40, 3))
-        tk.Label(brand, text='◈', bg=SIDEBAR, fg=MINT, font=('Segoe UI', 26)).pack(side='left', padx=(0,9))
-        tk.Label(brand, text='LocalDeck', bg=SIDEBAR, fg=TEXT, font=('Segoe UI', 17, 'bold')).pack(side='left')
-        tk.Label(sidebar, text='D E V E L O P E R  S P A C E', bg=SIDEBAR, fg=MUTED, font=('Segoe UI',7)).pack(anchor='w', padx=27)
-        tk.Label(sidebar, text='工作空间', bg=SIDEBAR, fg=MUTED, font=('Segoe UI',9)).pack(anchor='w', padx=30, pady=(38,13))
+        root = QWidget(); self.setCentralWidget(root)
+        layout = QHBoxLayout(root); layout.setContentsMargins(12, 12, 16, 12); layout.setSpacing(16)
+        sidebar = QWidget(); sidebar.setObjectName('sidebar'); sidebar.setFixedWidth(210)
+        nav = QVBoxLayout(sidebar); nav.setContentsMargins(6, 16, 6, 8); nav.setSpacing(6)
+        brand = QHBoxLayout(); logo = label('◈'); logo.setStyleSheet('color: #76b9ed; font-size: 25px;'); brand.addWidget(logo); brand.addWidget(label('LocalDeck', 'brand')); brand.addStretch()
+        nav.addLayout(brand); nav.addSpacing(26); nav.addWidget(label('工作空间', 'muted')); nav.addSpacing(6)
         self.nav_buttons = []
-        for index, title in enumerate(['▦   服务概览', '▷   启动项', '›_   终端工作区']):
-            button = tk.Button(sidebar, text=title, font=('Segoe UI',11), anchor='w', bg=SIDEBAR, fg=MUTED, activebackground='#29263f', activeforeground=TEXT, relief='flat', bd=0, padx=16, pady=13, cursor='hand2', command=lambda i=index:self.tabs.select(i))
-            button.pack(fill='x', padx=16, pady=3); self.nav_buttons.append(button)
-        tk.Label(sidebar, text='LOCALDECK  /  0.4.0', bg=SIDEBAR, fg=MUTED, font=('Consolas',8)).pack(side='bottom', anchor='w', padx=25, pady=25)
-        tk.Label(sidebar, text='●  此 Windows PC\n\n服务、性能和终端\n都在一个工作空间。', justify='left', bg=SIDEBAR, fg=MUTED, font=('Segoe UI',10)).pack(side='bottom', anchor='w', padx=27, pady=15)
-        outer = ttk.Frame(self, padding=(28,28,28,0)); outer.pack(fill='both', expand=True)
-        heading = ttk.Frame(outer); heading.pack(fill='x')
-        titles = ttk.Frame(heading); titles.pack(side='left')
-        self.breadcrumb = ttk.Label(titles, text='工作空间  /  服务概览', style='Muted.TLabel', font=('Segoe UI',9)); self.breadcrumb.pack(anchor='w')
-        self.page_title = ttk.Label(titles, text='服务概览', font=('Segoe UI',23,'bold')); self.page_title.pack(anchor='w', pady=(8,0))
-        ttk.Button(heading,text='＋ 添加启动项',style='Accent.TButton',command=self.add_dialog).pack(side='right')
-        self.refresh_button=ttk.Button(heading,text='↻',command=self.refresh);self.refresh_button.pack(side='right',padx=10)
-        self.performance = PerformanceStrip(outer); self.performance.pack(fill='x', pady=(24,22))
-        self.tabs = ttk.Notebook(outer, style='Pages.TNotebook'); self.tabs.pack(fill='both',expand=True)
-        live = ttk.Frame(self.tabs); managed = ttk.Frame(self.tabs)
-        self.tabs.add(live,text='服务概览'); self.tabs.add(managed,text='启动项')
-        self.terminals = TerminalWorkspace(self.tabs); self.tabs.add(self.terminals,text='终端工作区')
-        self.tabs.bind('<<NotebookTabChanged>>', self.page_changed)
-        toolbar=ttk.Frame(live);toolbar.pack(fill='x',pady=(0,14))
-        ttk.Label(toolbar,text='运行中的服务',font=('Segoe UI',12,'bold')).pack(side='left')
-        self.stats=ttk.Label(toolbar,text='正在扫描…',style='Muted.TLabel',font=('Segoe UI',9));self.stats.pack(side='left',padx=12)
-        self.sort_cpu = False
-        ttk.Button(toolbar,text='CPU 排序',command=self.toggle_sort).pack(side='right')
-        ttk.Entry(toolbar,textvariable=self.search,width=28).pack(side='right',padx=10)
-        body=ttk.Frame(live);body.pack(fill='both',expand=True)
-        detail=ttk.Frame(body);detail.pack(side='right',fill='y',padx=(16,0))
-        self.inspector=Inspector(detail)
-        detail_actions=ttk.Frame(detail);detail_actions.pack(side='bottom',fill='x',pady=10)
-        ttk.Button(detail_actions,text='打开服务',command=self.open_port).pack(side='left')
-        ttk.Button(detail_actions,text='目录',command=self.open_directory).pack(side='left',padx=7)
-        ttk.Button(detail_actions,text='停止…',command=self.stop_external).pack(side='right')
-        self.inspector.pack(fill='both',expand=True)
-        self.live_tree=self.tree(body,[('name','进程',155),('pid','PID',75),('ports','端口',130),('command','命令',480)])
-        self.live_tree.bind('<<TreeviewSelect>>',self.show_directory);self.live_tree.bind('<Double-1>',lambda _:self.open_port())
-        self.directory_text=ttk.Label(live,text='',style='Muted.TLabel')
-        task_left=ttk.Frame(managed,width=360);task_left.pack(side='left',fill='both',padx=(0,18));task_left.pack_propagate(False)
-        ttk.Label(task_left,text='已保存的启动项',font=('Segoe UI',12,'bold')).pack(anchor='w',pady=(0,14))
-        self.task_tree=self.tree(task_left,[('name','启动项',160),('state','状态',90),('command','命令',480)])
-        self.task_tree.bind('<<TreeviewSelect>>',self.select_log)
-        task_actions=ttk.Frame(task_left);task_actions.pack(fill='x',pady=12)
-        for text,verb in [('启动','start'),('停止','stop'),('重启','restart'),('删除…','delete')]:
-            ttk.Button(task_actions,text=text,command=lambda v=verb:self.service_action(v)).pack(side='left',padx=(0,6))
-        log_panel=ttk.Frame(managed);log_panel.pack(fill='both',expand=True)
-        log_heading=ttk.Frame(log_panel);log_heading.pack(fill='x',pady=(0,14))
-        ttk.Label(log_heading,text='›_  实时日志',font=('Segoe UI',12,'bold')).pack(side='left')
-        ttk.Label(log_heading,text='最近 100 KB',style='Muted.TLabel',font=('Segoe UI',9)).pack(side='right')
-        self.log=tk.Text(log_panel,bg=CONSOLE,fg=TEXT,insertbackground=TEXT,font=('Consolas',10),wrap='none',relief='flat',height=9,padx=18,pady=18,state='disabled')
-        scrollbar=ttk.Scrollbar(log_panel,command=self.log.yview);scrollbar.pack(side='right',fill='y');self.log.configure(yscrollcommand=scrollbar.set);self.log.pack(fill='both',expand=True)
-        self.status=ttk.Label(outer,text='本机已连接 · CPU 按整机容量计 · 每 2 秒采样',style='Muted.TLabel',font=('Segoe UI',9));self.status.pack(anchor='w',pady=15)
-        self.after(1000,self.metrics_tick)
+        for index, title in enumerate(['服务概览', '启动项', '终端工作区']):
+            button = self.button(title, lambda i=index:self.select_page(i), 'nav'); button.setCheckable(True)
+            button.setAccessibleName(title); nav.addWidget(button); self.nav_buttons.append(button)
+        nav.addStretch(); nav.addWidget(label('●  此 Windows PC', 'muted')); nav.addSpacing(8)
+        nav.addWidget(label('LocalDeck '+VERSION, 'muted')); layout.addWidget(sidebar)
+        content = QWidget(); content_layout = QVBoxLayout(content); content_layout.setContentsMargins(10, 12, 0, 0); content_layout.setSpacing(18)
+        top = QHBoxLayout(); self.title_label = label('服务概览', 'heading'); top.addWidget(self.title_label); top.addStretch()
+        self.refresh_button = self.button('刷新', self.refresh); top.addWidget(self.refresh_button)
+        top.addWidget(self.button('＋ 添加启动项', self.add_dialog, 'primary')); content_layout.addLayout(top)
+        caption = label('在一个工作空间，管理本机服务与终端。', 'muted'); content_layout.addWidget(caption)
+        metrics = QHBoxLayout(); metrics.setSpacing(12); self.cards = []
+        for title, color in [('系统 CPU', '#76b9ed'), ('物理内存', '#c0a4ed'), ('LocalDeck 自身', '#87d4bb')]:
+            card = MetricCard(title, color); metrics.addWidget(card, 1); self.cards.append(card)
+        content_layout.addLayout(metrics)
+        self.tabs = QStackedWidget(); content_layout.addWidget(self.tabs, 1)
+        self.build_live(); self.build_managed(); self.terminals = TerminalWorkspace(); self.tabs.addWidget(self.terminals)
+        self.status = label('正在连接本机服务…', 'muted'); content_layout.addWidget(self.status)
+        layout.addWidget(content, 1); self.select_page(0)
 
-    def page_changed(self, _=None):
-        index=self.tabs.index(self.tabs.select())
-        for i,button in enumerate(self.nav_buttons):button.configure(bg='#29263f' if i==index else SIDEBAR,fg=TEXT if i==index else MUTED)
-        self.breadcrumb.configure(text='工作空间  /  '+['服务概览','启动项','终端工作区'][index])
-        self.page_title.configure(text=['服务概览','启动项','终端工作区'][index])
+    def build_live(self):
+        page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(12)
+        toolbar = QHBoxLayout(); toolbar.addWidget(label('运行中的服务', 'section')); self.stats = label('', 'muted'); toolbar.addWidget(self.stats); toolbar.addStretch()
+        self.search = QLineEdit(); self.search.setPlaceholderText('搜索名称、PID 或端口'); self.search.setClearButtonEnabled(True); self.search.setMaximumWidth(250); self.search.textChanged.connect(self.render_listeners); toolbar.addWidget(self.search)
+        self.sort_button = self.button('按 CPU 排序', self.toggle_sort); toolbar.addWidget(self.sort_button); layout.addLayout(toolbar)
+        split = QSplitter(); split.setChildrenCollapsible(False); self.live_list = QListWidget(); self.live_list.setItemDelegate(ServiceDelegate(self.live_list)); self.live_list.setAccessibleName('运行中的服务'); self.live_list.currentItemChanged.connect(self.show_details); self.live_list.itemDoubleClicked.connect(lambda _:self.open_port()); split.addWidget(self.live_list)
+        self.inspector = panel(); detail = QVBoxLayout(self.inspector); detail.setContentsMargins(20, 20, 20, 16); detail.setSpacing(14)
+        detail.addWidget(label('服务详情', 'muted')); self.detail_name = label('选择一个服务', 'section'); self.detail_name.setWordWrap(True); detail.addWidget(self.detail_name)
+        self.detail_pid = label('', 'muted'); detail.addWidget(self.detail_pid)
+        usage = QHBoxLayout(); self.detail_cpu = label('CPU  —'); self.detail_memory = label('内存  —'); usage.addWidget(self.detail_cpu); usage.addWidget(self.detail_memory); detail.addLayout(usage)
+        area = QScrollArea(); area.setWidgetResizable(True); area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); area.setFrameShape(QScrollArea.NoFrame); area.setStyleSheet('QScrollArea { background: transparent; border: none; }')
+        info = QWidget(); info.setStyleSheet('background: transparent;'); fields = QVBoxLayout(info); fields.setContentsMargins(0, 8, 0, 0); fields.setSpacing(10)
+        self.detail_ports = label('—'); self.detail_directory = label('—'); self.detail_command = label('—')
+        for name, widget in [('监听端口', self.detail_ports), ('工作目录', self.detail_directory), ('启动命令', self.detail_command)]:
+            fields.addWidget(label(name, 'muted')); widget.setWordWrap(True); widget.setMinimumWidth(0); widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred); widget.setTextInteractionFlags(Qt.TextSelectableByMouse); fields.addWidget(widget); fields.addSpacing(10)
+        fields.addStretch(); area.setWidget(info); detail.addWidget(area, 1)
+        detail.addWidget(self.button('复制启动命令', self.copy_command))
+        actions = QHBoxLayout(); self.open_button = self.button('打开服务', self.open_port); self.dir_button = self.button('目录', self.open_directory)
+        actions.addWidget(self.open_button); actions.addWidget(self.dir_button); detail.addLayout(actions)
+        self.stop_button = self.button('停止进程…', self.stop_external, 'danger'); detail.addWidget(self.stop_button)
+        self.inspector.setMinimumWidth(280); split.addWidget(self.inspector); split.setSizes([650, 300]); layout.addWidget(split, 1)
+        self.tabs.addWidget(page)
 
-    def toggle_sort(self):self.sort_cpu=not self.sort_cpu;self.render_listeners()
+    def build_managed(self):
+        page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(12)
+        layout.addWidget(label('已保存的启动项', 'section'))
+        split = QSplitter(); split.setChildrenCollapsible(False)
+        left = QWidget(); left.setMinimumWidth(330); left_layout = QVBoxLayout(left); left_layout.setContentsMargins(0, 0, 0, 0)
+        self.task_list = QListWidget(); self.task_list.setItemDelegate(ServiceDelegate(self.task_list)); self.task_list.setAccessibleName('已保存的启动项'); self.task_list.currentItemChanged.connect(self.select_log); left_layout.addWidget(self.task_list, 1)
+        self.task_empty = label('还没有启动项\n点击右上角「添加启动项」开始。', 'muted'); self.task_empty.setAlignment(Qt.AlignCenter); left_layout.addWidget(self.task_empty)
+        actions = QHBoxLayout(); self.task_buttons = []
+        for title, verb in [('启动', 'start'), ('停止', 'stop'), ('重启', 'restart'), ('删除', 'delete')]:
+            button = self.button(title, lambda v=verb:self.service_action(v)); actions.addWidget(button); self.task_buttons.append(button)
+        left_layout.addLayout(actions); split.addWidget(left)
+        right = panel(); right_layout = QVBoxLayout(right); right_layout.setContentsMargins(16, 14, 16, 16)
+        heading = QHBoxLayout(); heading.addWidget(label('实时日志', 'section')); heading.addStretch(); heading.addWidget(label('最近 100 KB', 'muted')); right_layout.addLayout(heading)
+        self.log = QPlainTextEdit(); self.log.setReadOnly(True); self.log.setPlaceholderText('选择一个启动项，查看运行日志。'); self.log.setLineWrapMode(QPlainTextEdit.NoWrap); self.log.setStyleSheet('font-family: "Cascadia Mono", "Consolas", monospace; font-size: 13px;'); right_layout.addWidget(self.log)
+        split.addWidget(right); split.setSizes([380, 600]); layout.addWidget(split, 1); self.tabs.addWidget(page)
 
-    def metrics_tick(self):
-        if self.closing:return
-        self.submit(lambda:self.request('/metrics'), self.performance.update_data)
-        self.after(2000,self.metrics_tick)
+    def select_page(self, index):
+        self.tabs.setCurrentIndex(index); self.title_label.setText(['服务概览', '启动项', '终端工作区'][index])
+        for i, button in enumerate(self.nav_buttons): button.setChecked(i == index)
 
-    def tree(self,parent,columns):
-        cards=ServiceCards(parent,columns);cards.pack(fill='both',expand=True);return cards
+    def toggle_sort(self):
+        self.sort_cpu = not self.sort_cpu; self.sort_button.setText('默认顺序' if self.sort_cpu else '按 CPU 排序'); self.render_listeners()
 
     def request(self, path, body=None):
-        request = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
-                                        headers={'Authorization': 'Bearer ' + self.api.token, 'Content-Type': 'application/json'})
+        request = urllib.request.Request(self.base+path, data=json.dumps(body).encode() if body is not None else None,
+            headers={'Authorization':'Bearer '+self.api.token, 'Content-Type':'application/json'})
         try:
             with urllib.request.urlopen(request, timeout=30) as response: return json.load(response)
-        except urllib.error.HTTPError as error:
-            raise RuntimeError(json.load(error).get('error', str(error))) from error
+        except urllib.error.HTTPError as error: raise RuntimeError(json.load(error).get('error', str(error))) from error
 
-    def submit(self, operation, success):
-        if self.closing or self.busy: return
-        self.busy = True
-        self.refresh_button.configure(state='disabled')
+    def submit(self, operation, callback, key='action'):
+        if self.closing or self.preview or key in self.pending: return
+        self.pending.add(key)
         def work():
-            try: self.results.put((success, operation(), None))
-            except Exception as error: self.results.put((success, None, str(error)))
+            try: self.results.put((key, callback, operation(), None))
+            except Exception as error: self.results.put((key, callback, None, str(error)))
         self.executor.submit(work)
 
     def poll(self):
-        if self.closing: return
         try:
-            success, data, error = self.results.get_nowait()
-            self.busy = False; self.refresh_button.configure(state='normal')
-            if error:
-                self.status.configure(text='操作失败：' + error)
-                if self.smoke: raise RuntimeError(error)
-            else: success(data)
+            while True:
+                key, callback, data, error = self.results.get_nowait()
+                if key == 'closed':
+                    self.closed = True
+                    if error: self.errors.append(error)
+                    self.close(); return
+                self.pending.discard(key)
+                if error:
+                    self.errors.append(error); self.status.setText('操作失败：'+error)
+                    if self.smoke: QApplication.exit(1)
+                elif not self.closing: callback(data)
         except queue.Empty: pass
-        self.after(80, self.poll)
-
-    def tick(self):
-        if not self.closing:
-            self.refresh(); self.after(4000, self.tick)
 
     def refresh(self):
         selected = self.selected_log
         def fetch():
             data = self.request('/state')
-            if selected and any(item['id'] == selected for item in data['services']):
-                data['log'] = self.request('/logs/' + selected)['text']
+            if selected and any(item['id'] == selected for item in data['services']): data['log'] = (selected, self.request('/logs/'+selected)['text'])
             return data
-        self.submit(fetch, self.render)
+        self.submit(fetch, self.render, 'state')
+
+    def metrics_tick(self): self.submit(lambda:self.request('/metrics'), self.update_metrics, 'metrics')
+
+    def update_metrics(self, data):
+        data = data or {}; system = data.get('system', {}); app = data.get('app', {}); history = data.get('history', [])
+        self.cards[0].update_value(system.get('cpuPercent'), f"{data.get('cpuCores', 0)} 个逻辑核心 · 整机容量", [p['cpu'] for p in history if p.get('cpu') is not None])
+        self.cards[1].update_value(system.get('memoryPercent'), memory(system.get('memoryBytes'))+' / '+memory(system.get('memoryTotal')), [p['memory'] for p in history if p.get('memory') is not None])
+        self.cards[2].update_value(app.get('cpuPercent'), '内存 '+memory(app.get('memoryBytes'))+' · '+percent(app.get('memoryPercent')), [])
 
     @staticmethod
-    def replace_rows(tree, rows):
-        selection = tree.selection()
-        selected = selection[0] if selection else None
-        for key in tree.get_children():
-            if key not in rows: tree.delete(key)
-        for key, values in rows.items():
-            if tree.exists(key): tree.item(key, values=values)
-            else: tree.insert('', 'end', iid=key, values=values)
-        if selected in rows: tree.selection_set(selected)
+    def selected_key(widget):
+        item = widget.currentItem(); return item.data(Qt.UserRole) if item else None
+
+    def populate(self, widget, rows):
+        selected = self.selected_key(widget); scroll = widget.verticalScrollBar().value()
+        widget.blockSignals(True); widget.clear()
+        for key, title, caption, usage in rows:
+            text = title+'\n'+caption+'\nCPU  '+percent((usage or {}).get('cpuPercent'))+'     内存  '+memory((usage or {}).get('memoryBytes'))
+            item = QListWidgetItem(text); item.setData(Qt.UserRole, key); item.setData(Qt.UserRole+1, dict(title=title, caption=caption, usage=usage)); item.setToolTip(caption); item.setSizeHint(QSize(150, 80)); widget.addItem(item)
+            if key == selected: widget.setCurrentItem(item)
+        if widget.currentRow() < 0 and widget.count(): widget.setCurrentRow(0)
+        widget.blockSignals(False); widget.verticalScrollBar().setValue(scroll)
 
     def render(self, data):
-        self.data = data
-        self.performance.update_data(data.get('performance'))
-        self.live_tree.resources = {str(item['pid']): item.get('usage') for item in data['listeners']}
-        self.task_tree.resources = {item['id']: item.get('usage') for item in data['services']}
-        self.render_listeners()
-        self.replace_rows(self.task_tree, {item['id']: (item['name'], '运行中' if item['running'] else '已停止', item['command']) for item in data['services']})
+        self.data = data; self.update_metrics(data.get('performance')); self.render_listeners()
+        self.populate(self.task_list, [(i['id'], i['name']+('  ·  运行中' if i['running'] else '  ·  已停止'), i['command'], i.get('usage')) for i in data['services']])
+        self.task_empty.setVisible(not data['services']); self.task_list.setVisible(bool(data['services']))
+        for button in self.task_buttons: button.setEnabled(bool(data['services']))
+        self.select_log()
+        if 'log' in data and data['log'][0] == self.selected_log: self.set_log(data['log'][1])
         ports = {port for item in data['listeners'] for port in item['ports']}
-        running = sum(item['running'] for item in data['services'])
-        self.stats.configure(text=f"{len(data['listeners'])} 个进程 · {len(ports)} 个端口")
-        self.status.configure(text='● 本机已连接 · CPU 按整机容量计 · 每 2 秒采样')
-        if 'log' in data: self.set_log(data['log'])
-        if self.smoke:
-            metrics = data.get('performance') or {}
-            if not metrics.get('available') or metrics.get('system', {}).get('cpuPercent') is None:
-                self.after(400, self.refresh)
-                return
-            (server.ROOT / 'smoke-result.json').write_text(json.dumps({'ok': True, 'listeners': len(data['listeners']), 'api': self.base, 'metrics': True}), encoding='utf-8')
-            self.after(300, self.close)
+        self.stats.setText(f"{len(data['listeners'])} 个进程 · {len(ports)} 个端口")
+        self.status.setText('● 本机已连接   ·   性能每 2 秒采样   ·   CPU 按整机容量计算')
+        if self.smoke and (data.get('performance') or {}).get('system', {}).get('cpuPercent') is not None:
+            from backend import server
+            (server.ROOT/'smoke-result.json').write_text(json.dumps({'ok':True, 'listeners':len(data['listeners']), 'metrics':True, 'ui':'Qt Fluent', 'native':self.native_attributes}), encoding='utf-8')
+            QTimer.singleShot(300, self.close)
 
-    def render_listeners(self):
-        if not hasattr(self, 'live_tree'): return
-        query = self.search.get().casefold()
-        rows = [item for item in self.data['listeners'] if query in str(item).casefold()]
-        if self.sort_cpu: rows.sort(key=lambda item:(item.get('usage') or {}).get('cpuPercent') or 0, reverse=True)
-        self.replace_rows(self.live_tree, {str(item['pid']):(item['name'],item['pid'],', '.join(map(str,item['ports'])),item['command'] or '无权限读取') for item in rows})
-        # Keep ordering stable across updates and reflect resource-based sorting.
-        keys=[str(item['pid']) for item in rows]
-        self.live_tree.rows={key:self.live_tree.rows[key] for key in keys}
-        if not self.live_tree.selection() and keys:self.live_tree.selection_set(keys[0])
-        self.live_tree.schedule()
-        self.show_directory()
+    def render_listeners(self, *_):
+        query = self.search.text().casefold(); rows = [i for i in self.data['listeners'] if query in str(i).casefold()]
+        if self.sort_cpu: rows.sort(key=lambda i:(i.get('usage') or {}).get('cpuPercent') or 0, reverse=True)
+        self.populate(self.live_list, [(str(i['pid']), i['name'], 'PID '+str(i['pid'])+'  ·  '+', '.join(':'+str(p) for p in i['ports']), i.get('usage')) for i in rows]); self.show_details()
 
     def selected_listener(self):
-        selected = self.live_tree.selection()
-        return next((item for item in self.data['listeners'] if selected and str(item['pid']) == selected[0]), None)
+        key = self.selected_key(self.live_list)
+        return next((i for i in self.data['listeners'] if str(i['pid']) == key), None)
 
-    def show_directory(self, _=None):
+    def show_details(self, *_):
+        item = self.selected_listener() or {}; usage = item.get('usage') or {}
+        self.detail_name.setText(item.get('name', '未找到匹配的服务')); self.detail_pid.setText('PID '+str(item['pid']) if item else '调整搜索条件后重试。')
+        self.detail_cpu.setText('CPU  '+percent(usage.get('cpuPercent'))); self.detail_memory.setText('内存  '+memory(usage.get('memoryBytes')))
+        self.detail_ports.setText('  '.join(':'+str(p) for p in item.get('ports', [])) or '—')
+        self.detail_directory.setText(item.get('directory') or '无法读取此进程目录'); self.detail_command.setText(item.get('command') or '无法读取启动命令')
+        self.open_button.setEnabled(bool(item.get('ports'))); self.dir_button.setEnabled(bool(item.get('directory'))); self.stop_button.setEnabled(bool(item.get('command')))
+
+    def copy_command(self):
         item = self.selected_listener()
-        self.directory_text.configure(text=(item['directory'] or '无法读取此进程的工作目录') if item else '选择进程查看目录。')
-        self.inspector.update_item(item)
-
+        if item and item.get('command'): QApplication.clipboard().setText(item['command'])
     def open_port(self):
         item = self.selected_listener()
-        if item and item['ports']: webbrowser.open('http://localhost:' + str(item['ports'][0]))
-
+        if item and item['ports']: webbrowser.open('http://localhost:'+str(item['ports'][0]))
     def open_directory(self):
         item = self.selected_listener()
-        if item and item['directory']:
+        if item and item.get('directory'):
             try: os.startfile(item['directory'])
-            except OSError as error: messagebox.showerror('无法打开目录', str(error), parent=self)
-
+            except OSError as error: QMessageBox.warning(self, '无法打开目录', str(error))
     def stop_external(self):
-        if self.busy: return
         item = self.selected_listener()
-        if not item: return
-        if not item['command']:
-            messagebox.showinfo('无法停止', '此进程无权读取，不能安全确认身份。', parent=self); return
-        if messagebox.askyesno('停止进程', f"停止 {item['name']}（PID {item['pid']}）？\n未保存的工作可能丢失。", parent=self):
-            self.submit(lambda: self.request('/processes/stop', {'pid': item['pid'], 'command': item['command']}), lambda _: self.refresh())
-
+        if not item or not item.get('command'): return
+        if QMessageBox.question(self, '停止进程', f"停止 {item['name']}（PID {item['pid']}）？\n请先保存该进程中的工作。") == QMessageBox.Yes:
+            self.submit(lambda:self.request('/processes/stop', {'pid':item['pid'], 'command':item['command']}), lambda _:self.refresh())
     def set_log(self, text):
-        bottom = self.log.yview()[1] >= 0.99
-        self.log.configure(state='normal'); self.log.delete('1.0', 'end'); self.log.insert('1.0', text); self.log.configure(state='disabled')
-        if bottom: self.log.see('end')
-
-    def select_log(self, _=None):
-        selection = self.task_tree.selection()
-        key = selection[0] if selection else None
+        bar = self.log.verticalScrollBar(); bottom = bar.value() >= bar.maximum()-3; old = bar.value()
+        if self.log.toPlainText() == text: return
+        self.log.setPlainText(text); bar.setValue(bar.maximum() if bottom else old)
+    def select_log(self, *_):
+        key = self.selected_key(self.task_list)
         if key != self.selected_log:
-            self.selected_log = key
-            self.set_log('正在读取日志…' if key else '选择启动项查看日志。')
-            if key: self.refresh()
-
+            self.selected_log = key; self.set_log('正在读取日志…' if key else '')
+            if key: QTimer.singleShot(0, self.refresh)
     def service_action(self, verb):
-        if self.busy: return
-        selected = self.task_tree.selection()
-        if not selected: return
-        if verb == 'delete' and not messagebox.askyesno('删除启动项', '停止并删除此启动项？', parent=self): return
-        key = selected[0]
-        if verb == 'delete': self.selected_log = None; self.set_log('选择启动项查看日志。')
-        self.submit(lambda: self.request('/services/' + key + '/' + verb, {}), lambda _: self.refresh())
+        key = self.selected_key(self.task_list)
+        if not key: return
+        if verb == 'delete' and QMessageBox.question(self, '删除启动项', '停止并删除此启动项？') != QMessageBox.Yes: return
+        self.submit(lambda:self.request('/services/'+key+'/'+verb, {}), lambda _:self.refresh())
 
     def add_dialog(self):
-        if self.busy: return
-        dialog = tk.Toplevel(self); dialog.title('添加启动项'); dialog.configure(bg=BG); dialog.geometry('600x350'); dialog.transient(self); dialog.grab_set()
-        frame = ttk.Frame(dialog, padding=24); frame.pack(fill='both', expand=True)
-        values = [tk.StringVar(), tk.StringVar(), tk.StringVar(value=str(Path.home()))]
-        for text, value in zip(['名称', '命令（通过 cmd.exe 执行，例如 npm run dev）', '工作目录'], values):
-            ttk.Label(frame, text=text).pack(anchor='w', pady=(8, 4)); ttk.Entry(frame, textvariable=value).pack(fill='x')
+        dialog = QDialog(self); dialog.setWindowTitle('添加启动项'); dialog.setMinimumWidth(560)
+        layout = QVBoxLayout(dialog); layout.setContentsMargins(24, 24, 24, 24); layout.setSpacing(18); layout.addWidget(label('添加启动项', 'section'))
+        form = QFormLayout(); form.setSpacing(12); name = QLineEdit(); name.setPlaceholderText('例如：前端开发服务'); command = QLineEdit(); command.setPlaceholderText('例如：npm run dev'); directory = QLineEdit(str(Path.home()))
+        form.addRow('名称', name); form.addRow('启动命令', command); form.addRow('工作目录', directory); layout.addLayout(form)
         def choose():
-            directory = filedialog.askdirectory(parent=dialog)
-            if directory: values[2].set(directory)
-        ttk.Button(frame, text='选择目录…', command=choose).pack(anchor='w', pady=8)
+            value = QFileDialog.getExistingDirectory(dialog, '工作目录', directory.text())
+            if value: directory.setText(value)
+        layout.addWidget(self.button('选择目录', choose)); layout.addWidget(label('命令通过 cmd.exe 执行，使用当前用户的 PATH。', 'muted'))
+        actions = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel); actions.button(QDialogButtonBox.Save).setText('保存'); actions.button(QDialogButtonBox.Save).setObjectName('primary'); actions.button(QDialogButtonBox.Cancel).setText('取消'); actions.rejected.connect(dialog.reject)
         def save():
-            body = dict(zip(['name', 'command', 'directory'], [value.get().strip() for value in values]))
-            if not all(body.values()) or not Path(body['directory']).is_dir():
-                messagebox.showerror('请检查输入', '请填写名称、命令和有效目录。', parent=dialog); return
-            dialog.destroy(); self.tabs.select(1)
-            self.submit(lambda: self.request('/services', body), lambda _: self.refresh())
-        ttk.Button(frame, text='保存', style='Accent.TButton', command=save).pack(anchor='e')
+            body = {'name':name.text().strip(), 'command':command.text().strip(), 'directory':directory.text().strip()}
+            if not all(body.values()) or not Path(body['directory']).is_dir(): QMessageBox.warning(dialog, '请检查输入', '请填写名称、命令和有效目录。'); return
+            dialog.accept(); self.select_page(1); self.submit(lambda:self.request('/services', body), lambda _:self.refresh())
+        actions.accepted.connect(save); layout.addWidget(actions); apply_native_window(dialog); dialog.exec()
 
-    def close(self):
+    def closeEvent(self, event):
+        if self.closed: event.accept(); return
+        event.ignore()
         if self.closing: return
-        self.closing = True
-        self.status.configure(text='正在停止托管任务…')
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        self.closing = True; self.terminals.closing = True; self.centralWidget().setEnabled(False); self.status.setText('正在停止托管任务与终端…'); self.refresh_timer.stop(); self.metric_timer.stop(); self.terminals.timer.stop()
         def shutdown():
+            error = None
             try:
-                self.terminals.shutdown(); server.stop_all(); self.api.shutdown(); self.api.server_close()
-                self.results.put(('closed', None, None))
-            except Exception as error: self.results.put(('closed', None, str(error)))
+                # Let active API operations finish before stopping managed tasks.
+                self.executor.shutdown(wait=True, cancel_futures=True); self.terminals.shutdown()
+                if not self.preview:
+                    from backend import server
+                    server.stop_all(); self.api.shutdown(); self.api.server_close()
+            except Exception as exc: error = str(exc)
+            self.results.put(('closed', None, None, error))
         threading.Thread(target=shutdown, daemon=True).start()
-        self.after(100, self.finish_close)
-
-    def finish_close(self):
-        try:
-            while True:
-                kind, _, error = self.results.get_nowait()
-                if kind == 'closed':
-                    if error and not self.smoke: messagebox.showerror('停止任务失败', error, parent=self)
-                    self.destroy(); return
-        except queue.Empty: self.after(100, self.finish_close)
 
 
-if __name__ == '__main__':
-    smoke = '--smoke-test' in sys.argv
-    terminal_smoke = '--terminal-smoke-test' in sys.argv
-    try:
-        application = App(smoke=smoke)
-        if smoke:
-            def fail_timeout():
-                application.destroy(); os._exit(2)
-            application.after(30000, fail_timeout)
-        if terminal_smoke:
-            from windows.terminal_smoke import run
-            result = run(application)
-            (server.ROOT / 'terminal-smoke-result.json').write_text(json.dumps(result), encoding='utf-8')
-        else:
-            application.mainloop()
-    except Exception as error:
-        if not smoke and not terminal_smoke: messagebox.showerror('LocalDeck 无法启动', str(error))
-        raise
+def main():
+    preview = '--preview' in sys.argv; smoke = '--smoke-test' in sys.argv; terminal_smoke = '--terminal-smoke-test' in sys.argv
+    qt = QApplication(sys.argv); qt.setApplicationName('LocalDeck'); setup_theme(qt)
+    if not preview and (sys.platform != 'win32' or sys.getwindowsversion().build < 22000):
+        QMessageBox.critical(None, '需要 Windows 11', 'LocalDeck Windows 版需要 Windows 11 x64（内部版本 22000 或更新）。'); return 1
+    app = App(smoke=smoke, preview=preview); app.show()
+    if terminal_smoke:
+        from windows.terminal_smoke import run
+        from backend import server
+        result = run(app); (server.ROOT/'terminal-smoke-result.json').write_text(json.dumps(result), encoding='utf-8'); return 0
+    if smoke: QTimer.singleShot(45000, lambda:qt.exit(1))
+    return qt.exec()
+
+
+if __name__ == '__main__': sys.exit(main())
