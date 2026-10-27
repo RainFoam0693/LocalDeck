@@ -1,3 +1,5 @@
 psutil==7.0.0
 pyinstaller==6.11.1
 Pillow==11.1.0
+pywinpty==2.0.15
+pyte==0.8.2

@@ -5,3 +5,6 @@ assets/LocalDeck.iconset/
 build/
 *.spec
 assets/LocalDeck.ico
+
+.build/
+.swiftpm/

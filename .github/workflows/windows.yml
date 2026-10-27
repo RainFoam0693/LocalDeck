@@ -33,6 +33,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Desktop source smoke test failed' }
           $result = Get-Content "$env:LOCALDECK_DATA_DIR/smoke-result.json" | ConvertFrom-Json
           if (-not $result.ok) { throw 'UI did not connect to API' }
+      - name: Test terminal tabs and background continuity
+        shell: pwsh
+        run: |
+          $env:LOCALDECK_DATA_DIR = Join-Path $env:RUNNER_TEMP 'localdeck-terminal-source'
+          python windows/app.py --terminal-smoke-test
+          if ($LASTEXITCODE -ne 0) { throw 'Terminal source tests failed' }
+          $result = Get-Content "$env:LOCALDECK_DATA_DIR/terminal-smoke-result.json" | ConvertFrom-Json
+          if (-not $result.ok) { throw 'Terminal continuity test failed' }
       - name: Build standalone EXE and ZIP
         shell: pwsh
         run: ./windows/build.ps1
@@ -45,12 +53,21 @@ jobs:
           if ($app.ExitCode -ne 0) { throw "EXE failed: $($app.ExitCode)" }
           $result = Get-Content "$env:LOCALDECK_DATA_DIR/smoke-result.json" | ConvertFrom-Json
           if (-not $result.ok) { throw 'Packaged UI did not connect to API' }
+      - name: Test packaged terminal tabs
+        shell: pwsh
+        run: |
+          $env:LOCALDECK_DATA_DIR = Join-Path $env:RUNNER_TEMP 'localdeck-terminal-exe'
+          $app = Start-Process dist/windows/LocalDeck.exe -ArgumentList '--terminal-smoke-test' -PassThru
+          if (-not $app.WaitForExit(90000)) { $app.Kill(); throw 'Terminal EXE test timed out' }
+          if ($app.ExitCode -ne 0) { throw "Terminal EXE failed: $($app.ExitCode)" }
+          $result = Get-Content "$env:LOCALDECK_DATA_DIR/terminal-smoke-result.json" | ConvertFrom-Json
+          if (-not $result.ok) { throw 'Packaged terminal tests failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-0.2.0-Windows-x64.exe
-            dist/LocalDeck-0.2.0-Windows-x64.zip
+            dist/LocalDeck-0.3.0-Windows-x64.exe
+            dist/LocalDeck-0.3.0-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -59,5 +76,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.2.0 · Windows' --notes-file windows/RELEASE.md dist/LocalDeck-0.2.0-Windows-x64.exe dist/LocalDeck-0.2.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.3.0 · Windows' --notes-file windows/RELEASE.md dist/LocalDeck-0.3.0-Windows-x64.exe dist/LocalDeck-0.3.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

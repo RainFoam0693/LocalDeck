@@ -13,6 +13,7 @@ struct Listener: Codable, Identifiable {
 struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Listener] }
 
 @MainActor final class Store: ObservableObject {
+    let terminals = TerminalWorkspace()
     @Published var state = ServiceSnapshot(services: [], listeners: [])
     @Published var error = ""
     @Published var ready = false
@@ -71,11 +72,12 @@ struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Liste
         do { _ = try await request(path, body: body); await refresh() }
         catch { self.error = error.localizedDescription }
     }
-    func shutdown() { process?.terminate() }
+    func shutdown() { terminals.shutdown(); process?.terminate() }
 }
 
 struct ContentView: View {
     @ObservedObject var store: Store
+    @State private var smokeStarted = false
     @State private var section = "overview"
     @State private var search = ""
     @State private var adding = false
@@ -92,11 +94,15 @@ struct ContentView: View {
                 Text("本机开发工作台").foregroundStyle(.secondary)
                 Button { section = "overview" } label: { Label("运行中的服务", systemImage: "network").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.bordered)
                 Button { section = "managed" } label: { Label("我的启动项", systemImage: "terminal").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.bordered)
+                Button { section = "terminals" } label: { Label("应用内终端", systemImage: "rectangle.split.3x1").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.bordered)
                 Spacer()
                 Label(store.ready ? "本机 API 已连接" : "正在连接 API", systemImage: "circle.fill").font(.caption).foregroundStyle(store.ready ? .mint : .orange)
                 Text("退出应用会停止由本应用启动的服务。").font(.caption).foregroundStyle(.secondary)
             }.padding(20).frame(minWidth: 190)
         } detail: {
+            if section == "terminals" {
+                TerminalWorkspaceView(workspace: store.terminals).background(Color(red: 0.065, green: 0.08, blue: 0.10))
+            } else {
             VStack(alignment: .leading, spacing: 22) {
                 HStack {
                     VStack(alignment: .leading, spacing: 7) {
@@ -163,7 +169,9 @@ struct ContentView: View {
                 }
                 Text("每 4 秒自动刷新 · 仅显示当前用户可访问的进程 · 任意终端任务可通过启动项托管").font(.caption).foregroundStyle(.secondary)
             }.padding(28).background(Color(red: 0.065, green: 0.08, blue: 0.10))
+            }
         }.preferredColorScheme(.dark).frame(minWidth: 1060, minHeight: 700)
+        .task { if CommandLine.arguments.contains("--terminal-smoke-test") && !smokeStarted { smokeStarted = true; await terminalSmokeTest() } }
         .onReceive(timer) { _ in Task { await store.refresh() } }
         .alert("操作失败", isPresented: Binding(get: { !store.error.isEmpty }, set: { if !$0 { store.error = "" } })) { Button("好") { store.error = "" } } message: { Text(store.error) }
         .confirmationDialog("停止 \(pending?.name ?? "")？未保存的工作可能丢失。", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })) {
@@ -178,10 +186,53 @@ struct ContentView: View {
                     TextField("工作目录（绝对路径）", text: $directory)
                     Button("选择…") { let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; if panel.runModal() == .OK { directory = panel.url?.path ?? directory } }
                 }
-                Text("命令通过 zsh 执行，输出保存为日志。交互式 TTY 程序暂不支持。").font(.caption).foregroundStyle(.secondary)
+                Text("命令通过 zsh 执行，输出保存为日志。交互命令请使用「应用内终端」。").font(.caption).foregroundStyle(.secondary)
                 HStack { Spacer(); Button("取消") { adding = false }; Button("保存") { let body = ["name": name, "command": command, "directory": directory]; Task { await store.act("/services", body: body) }; adding = false; section = "managed"; name = ""; command = "" }.buttonStyle(.borderedProminent).disabled(name.isEmpty || command.isEmpty || directory.isEmpty) }
             }.textFieldStyle(.roundedBorder).padding(28).frame(width: 540)
         }
+    }
+    @MainActor func terminalSmokeTest() async {
+        let workspace = store.terminals
+        var result: [String: Any] = ["ok": false]
+        do {
+            section = "terminals"
+            workspace.add(); workspace.add()
+            let first = workspace.sessions[0], second = workspace.sessions[1]
+            try await Task.sleep(nanoseconds: 500_000_000)
+            first.view.send(txt: "export LOCALDECK_TAB=ONE; sleep 1; printf '%s_BACKGROUND\\n' \"$LOCALDECK_TAB\"\r")
+            second.view.send(txt: "export LOCALDECK_TAB=TWO; sleep 1; printf '%s_BACKGROUND\\n' \"$LOCALDECK_TAB\"\r")
+            section = "overview"
+            func output(_ session: TerminalSession) -> String { String(data: session.view.getTerminal().getBufferAsData(), encoding: .utf8) ?? "" }
+            for _ in 0..<100 {
+                if output(first).contains("ONE_BACKGROUND") && output(second).contains("TWO_BACKGROUND") { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            guard output(first).contains("ONE_BACKGROUND"), output(second).contains("TWO_BACKGROUND"), !output(first).contains("TWO_BACKGROUND") else { throw NSError(domain: "Background terminal continuity failed", code: 1) }
+            section = "managed"
+            first.view.send(txt: "sleep 30\r")
+            try await Task.sleep(nanoseconds: 300_000_000)
+            first.view.send(txt: "\u{03}")
+            try await Task.sleep(nanoseconds: 300_000_000)
+            first.view.send(txt: "printf '%s_INTERRUPT\\n' \"$LOCALDECK_TAB\"\r")
+            for _ in 0..<50 {
+                if output(first).contains("ONE_INTERRUPT") { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            guard output(first).contains("ONE_INTERRUPT") else { throw NSError(domain: "Ctrl+C failed", code: 2) }
+            section = "terminals"; workspace.selected = first.id
+            try await Task.sleep(nanoseconds: 300_000_000)
+            let firstPID = first.view.process.shellPid, secondPID = second.view.process.shellPid
+            workspace.close(first)
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard kill(firstPID, 0) != 0, kill(secondPID, 0) == 0 else { throw NSError(domain: "Tab cleanup isolation failed", code: 3) }
+            workspace.shutdown()
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard kill(secondPID, 0) != 0 else { throw NSError(domain: "Terminal shutdown failed", code: 4) }
+            result = ["ok": true, "tabs": 2, "pageSwitch": true, "ctrlC": true, "closeIsolation": true, "exitCleanup": true]
+        } catch { result["error"] = String(describing: error) }
+        workspace.shutdown()
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted) { try? data.write(to: URL(fileURLWithPath: "/tmp/localdeck-mac-terminal-smoke.json")) }
+        NSApp.terminate(nil)
     }
     func metric(_ title: String, value: String, icon: String) -> some View {
         HStack { VStack(alignment: .leading, spacing: 10) { Text(title).foregroundStyle(.secondary); Text(value).font(.system(size: 28, weight: .semibold, design: .rounded)) }; Spacer(); Image(systemName: icon).font(.title).foregroundStyle(.mint.opacity(0.7)) }.padding(20).frame(maxWidth: .infinity).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))

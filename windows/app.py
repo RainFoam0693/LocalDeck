@@ -16,6 +16,7 @@ import webbrowser
 if not getattr(sys, 'frozen', False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend import server
+from windows.terminal import TerminalWorkspace
 
 BG = '#10151e'
 PANEL = '#1b2432'
@@ -79,6 +80,8 @@ class App(tk.Tk):
         self.tabs = ttk.Notebook(outer); self.tabs.pack(fill='both', expand=True)
         live = ttk.Frame(self.tabs, padding=(0, 16)); managed = ttk.Frame(self.tabs, padding=(0, 16))
         self.tabs.add(live, text='运行中的服务'); self.tabs.add(managed, text='我的启动项 / 日志')
+        self.terminals = TerminalWorkspace(self.tabs)
+        self.tabs.add(self.terminals, text='应用内终端')
         ttk.Entry(live, textvariable=self.search).pack(fill='x', pady=(0, 12))
         self.live_tree = self.tree(live, [('name', '进程', 155), ('pid', 'PID', 75), ('ports', '端口', 130), ('command', '命令', 480)])
         self.live_tree.bind('<<TreeviewSelect>>', self.show_directory)
@@ -101,7 +104,7 @@ class App(tk.Tk):
         self.log = tk.Text(log_panel, bg='#090e16', fg=TEXT, insertbackground=TEXT, font=('Consolas', 10), wrap='none', relief='flat', height=9, padx=14, pady=12, state='disabled')
         scrollbar = ttk.Scrollbar(log_panel, command=self.log.yview); scrollbar.pack(side='right', fill='y')
         self.log.configure(yscrollcommand=scrollbar.set); self.log.pack(fill='both', expand=True)
-        self.status = ttk.Label(outer, text='每 4 秒刷新 · 退出会停止本应用启动的任务 · 不支持交互式 TTY', style='Muted.TLabel')
+        self.status = ttk.Label(outer, text='每 4 秒刷新 · 退出会停止本应用启动的任务 · 应用内终端支持独立多标签', style='Muted.TLabel')
         self.status.pack(anchor='w', pady=(15, 0))
 
     def tree(self, parent, columns):
@@ -261,7 +264,7 @@ class App(tk.Tk):
         self.executor.shutdown(wait=False, cancel_futures=True)
         def shutdown():
             try:
-                server.stop_all(); self.api.shutdown(); self.api.server_close()
+                self.terminals.shutdown(); server.stop_all(); self.api.shutdown(); self.api.server_close()
                 self.results.put(('closed', None, None))
             except Exception as error: self.results.put(('closed', None, str(error)))
         threading.Thread(target=shutdown, daemon=True).start()
@@ -279,13 +282,19 @@ class App(tk.Tk):
 
 if __name__ == '__main__':
     smoke = '--smoke-test' in sys.argv
+    terminal_smoke = '--terminal-smoke-test' in sys.argv
     try:
         application = App(smoke=smoke)
         if smoke:
             def fail_timeout():
                 application.destroy(); os._exit(2)
             application.after(30000, fail_timeout)
-        application.mainloop()
+        if terminal_smoke:
+            from windows.terminal_smoke import run
+            result = run(application)
+            (server.ROOT / 'terminal-smoke-result.json').write_text(json.dumps(result), encoding='utf-8')
+        else:
+            application.mainloop()
     except Exception as error:
-        if not smoke: messagebox.showerror('LocalDeck 无法启动', str(error))
+        if not smoke and not terminal_smoke: messagebox.showerror('LocalDeck 无法启动', str(error))
         raise
