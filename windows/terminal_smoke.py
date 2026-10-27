@@ -35,7 +35,11 @@ def run(app):
         pump(lambda:'LOCALDECK_PS_42' in powershell.text(), timeout=30)
         app.select_page(2); QApplication.processEvents()
         for session in sessions: session.write('ping -n 3 127.0.0.1 >nul & echo %LOCALDECK_TAB%_BACKGROUND\r')
-        app.select_page(0); pump(lambda:'ONE_BACKGROUND' in sessions[0].text() and 'TWO_BACKGROUND' in sessions[1].text())
+        app.select_page(0)
+        original_pids = [session.process.pid for session in sessions]
+        for mode in ['light', 'dark', 'system']: app.appearance.set_mode(mode); QApplication.processEvents()
+        assert original_pids == [session.process.pid for session in sessions]
+        pump(lambda:'ONE_BACKGROUND' in sessions[0].text() and 'TWO_BACKGROUND' in sessions[1].text())
         app.select_page(1); sessions[0].resize(25, 90); assert sessions[0].process.getwinsize() == (25, 90)
         sessions[0].write('echo %LOCALDECK_TAB%_RESIZED\r'); pump(lambda:'ONE_RESIZED' in sessions[0].text())
         sessions[1].write('ping -t 127.0.0.1\r'); end = time.monotonic()+.5
@@ -52,7 +56,7 @@ def run(app):
         assert not psutil.pid_exists(third.process.pid), 'Closing tab survived app exit'
         assert not psutil.pid_exists(powershell.process.pid), 'PowerShell survived app exit'
         assert not app.errors, app.errors
-        return {'ok':True, 'tabs':2, 'pageSwitch':True, 'resize':True, 'ctrlC':True, 'closeIsolation':True, 'exitCleanup':True, 'ui':'Qt', 'powerShell':True, 'keyboardInput':True}
+        return {'ok':True, 'tabs':2, 'pageSwitch':True, 'resize':True, 'ctrlC':True, 'closeIsolation':True, 'exitCleanup':True, 'ui':'Qt', 'powerShell':True, 'keyboardInput':True, 'themeContinuity':True}
     finally:
         for session in sessions:
             if not session.closed: session.close()

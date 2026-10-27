@@ -85,6 +85,7 @@ struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Liste
 
 struct ContentView: View {
     @ObservedObject var store: Store
+    @AppStorage("appearanceMode") private var appearanceMode = DeckAppearance.system.rawValue
     @State private var smokeStarted = false
     @State private var section = "overview"
     @State private var search = ""
@@ -103,8 +104,8 @@ struct ContentView: View {
     }
     var selectedListener: Listener? { listeners.first(where: { $0.pid == selectedPID }) ?? listeners.first }
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
+        VStack(spacing: 0) {
+            workspaceBar
             VStack(spacing: 0) {
                 if section == "terminals" {
                     TerminalWorkspaceView(workspace: store.terminals)
@@ -113,18 +114,18 @@ struct ContentView: View {
                         header
                         PerformanceStrip(data: store.performance)
                         if section == "overview" { servicesPage } else { managedPage }
-                    }.padding(28)
+                    }.padding(.horizontal, 28).padding(.vertical, 20)
                 }
                 HStack(spacing: 8) {
                     Circle().fill(store.ready ? Deck.mint : .orange).frame(width: 5, height: 5)
-                    Text(store.ready ? "本机已连接" : "正在连接")
+                    Text(store.ready ? "此 Mac 已连接" : "正在连接")
                     Text("·").foregroundStyle(Deck.muted)
                     Text("CPU 按整机容量计 · 每 2 秒采样")
                     Spacer()
-                    Text("LOCAL WORKSPACE").tracking(1.5)
+                    Text("LOCALDECK  /  \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "DEV")").tracking(1)
                 }.font(.system(size: 10)).foregroundStyle(Deck.muted).padding(.horizontal, 28).padding(.vertical, 12)
             }.background(Deck.background)
-        }.background(Deck.sidebar).preferredColorScheme(.dark).frame(minWidth: 1120, minHeight: 760)
+        }.background(Deck.sidebar).foregroundStyle(Deck.text).preferredColorScheme((DeckAppearance(rawValue: appearanceMode) ?? .system).scheme).frame(minWidth: 1120, minHeight: 760)
         .task { if CommandLine.arguments.contains("--terminal-smoke-test") && !smokeStarted { smokeStarted = true; await terminalSmokeTest() } }
         .onReceive(timer) { _ in ticks += 1; Task { await store.refreshMetrics(); if ticks % 2 == 0 { await store.refresh() } } }
         .alert("操作失败", isPresented: Binding(get: { !store.error.isEmpty }, set: { if !$0 { store.error = "" } })) { Button("好") { store.error = "" } } message: { Text(store.error) }
@@ -133,30 +134,21 @@ struct ContentView: View {
         }
         .sheet(isPresented: $adding) { addSheet }
     }
-    var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 11) {
-                Image(systemName: "square.stack.3d.up.fill").font(.system(size: 25)).foregroundStyle(Deck.mint)
-                VStack(alignment: .leading, spacing: 3) { Text("LocalDeck").font(.system(size: 19, weight: .bold)); Text("DEVELOPER SPACE").font(.system(size: 8, weight: .medium)).tracking(1.9).foregroundStyle(Deck.muted) }
-            }.padding(.bottom, 40)
-            Text("工作空间").font(.system(size: 10, weight: .medium)).foregroundStyle(Deck.muted).padding(.leading, 12).padding(.bottom, 13)
-            navigation("overview", title: "服务概览", icon: "square.grid.2x2", count: store.state.listeners.count)
-            navigation("managed", title: "启动项", icon: "play.rectangle", count: store.state.services.count)
-            navigation("terminals", title: "终端工作区", icon: "terminal", count: store.terminals.sessions.count)
-            Spacer()
-            VStack(alignment: .leading, spacing: 10) {
-                HStack { Image(systemName: "desktopcomputer"); Text("此 Mac").fontWeight(.medium); Spacer(); Circle().fill(Deck.mint).frame(width: 6, height: 6) }
-                Text("服务、性能和终端\n都在一个工作空间。").font(.system(size: 11)).foregroundStyle(Deck.muted).lineSpacing(5)
-            }.font(.system(size: 12)).padding(16).background(Deck.panel, in: RoundedRectangle(cornerRadius: 14))
-            Text("LOCALDECK  /  \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "DEV")").font(.system(size: 9, design: .monospaced)).tracking(1).foregroundStyle(Deck.muted.opacity(0.65)).padding(.top, 20)
-        }.padding(.horizontal, 20).padding(.top, 44).padding(.bottom, 24).frame(width: 205)
-    }
-    func navigation(_ id: String, title: String, icon: String, count: Int) -> some View {
-        Button { section = id } label: {
-            HStack(spacing: 11) { Image(systemName: icon).frame(width: 18); Text(title).font(.system(size: 12, weight: section == id ? .semibold : .regular)); Spacer(); Text(String(count)).font(.system(size: 10, design: .monospaced)).opacity(0.7) }
-                .foregroundStyle(section == id ? Deck.text : Deck.muted).padding(.horizontal, 13).padding(.vertical, 13)
-                .background(section == id ? Deck.accent.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 10))
-        }.buttonStyle(.plain).padding(.bottom, 5)
+    var workspaceBar: some View {
+        HStack(spacing: 20) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.stack.3d.up.fill").font(.system(size: 23)).foregroundStyle(Deck.mint)
+                Text("LocalDeck").font(.system(size: 18, weight: .semibold))
+            }
+            Spacer(minLength: 0)
+            WorkspaceNavigation(selection: $section, terminals: store.terminals,
+                                listenerCount: store.state.listeners.count, serviceCount: store.state.services.count)
+                .frame(width: 480, height: 44)
+            Spacer(minLength: 0)
+            AppearanceControl()
+        }
+        .padding(.horizontal, 28).padding(.top, 30).padding(.bottom, 14)
+        .background(.bar)
     }
     var header: some View {
         HStack(alignment: .center) {
@@ -165,8 +157,10 @@ struct ContentView: View {
                 Text(section == "overview" ? "服务概览" : "启动项").font(.system(size: 25, weight: .semibold))
             }
             Spacer()
+            DeckGlassGroup { HStack(spacing: 10) {
             Button { Task { await store.refresh(); await store.refreshMetrics() } } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(DeckButton())
             Button { adding = true } label: { Label("添加启动项", systemImage: "plus") }.buttonStyle(DeckButton(primary: true))
+            } }
         }
     }
     var servicesPage: some View {
@@ -235,6 +229,8 @@ struct ContentView: View {
     }
     @MainActor func terminalSmokeTest() async {
         let workspace = store.terminals
+        let previousAppearance = appearanceMode
+        defer { appearanceMode = previousAppearance }
         var result: [String: Any] = ["ok": false]
         do {
             section = "terminals"
@@ -244,6 +240,12 @@ struct ContentView: View {
             first.view.send(txt: "export LOCALDECK_TAB=ONE; sleep 1; printf '%s_BACKGROUND\\n' \"$LOCALDECK_TAB\"\r")
             second.view.send(txt: "export LOCALDECK_TAB=TWO; sleep 1; printf '%s_BACKGROUND\\n' \"$LOCALDECK_TAB\"\r")
             section = "overview"
+            let originalPIDs = workspace.sessions.map { $0.view.process.shellPid }
+            for mode in DeckAppearance.allCases {
+                appearanceMode = mode.rawValue
+                try await Task.sleep(nanoseconds: 200_000_000)
+            }
+            guard workspace.sessions.map({ $0.view.process.shellPid }) == originalPIDs else { throw NSError(domain: "Theme changed terminal identity", code: 5) }
             func output(_ session: TerminalSession) -> String { String(data: session.view.getTerminal().getBufferAsData(), encoding: .utf8) ?? "" }
             for _ in 0..<100 {
                 if output(first).contains("ONE_BACKGROUND") && output(second).contains("TWO_BACKGROUND") { break }
@@ -270,7 +272,7 @@ struct ContentView: View {
             workspace.shutdown()
             try await Task.sleep(nanoseconds: 500_000_000)
             guard kill(secondPID, 0) != 0 else { throw NSError(domain: "Terminal shutdown failed", code: 4) }
-            result = ["ok": true, "tabs": 2, "pageSwitch": true, "ctrlC": true, "closeIsolation": true, "exitCleanup": true]
+            result = ["ok": true, "tabs": 2, "pageSwitch": true, "ctrlC": true, "closeIsolation": true, "exitCleanup": true, "themeContinuity": true]
         } catch { result["error"] = String(describing: error) }
         workspace.shutdown()
         if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted) { try? data.write(to: URL(fileURLWithPath: "/tmp/localdeck-mac-terminal-smoke.json")) }

@@ -64,6 +64,7 @@ import Darwin
 }
 
 struct NativeTerminal: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
     let terminal: LocalProcessTerminalView
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
@@ -79,7 +80,12 @@ struct NativeTerminal: NSViewRepresentable {
         DispatchQueue.main.async { terminal.window?.makeFirstResponder(terminal) }
         return container
     }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let dark = colorScheme == .dark
+        terminal.nativeBackgroundColor = dark ? NSColor(calibratedRed: 0.035, green: 0.045, blue: 0.065, alpha: 1) : NSColor(calibratedRed: 0.97, green: 0.975, blue: 0.985, alpha: 1)
+        terminal.nativeForegroundColor = dark ? NSColor(calibratedRed: 0.90, green: 0.94, blue: 0.97, alpha: 1) : NSColor(calibratedRed: 0.10, green: 0.13, blue: 0.20, alpha: 1)
+        terminal.needsDisplay = true
+    }
     // Removing a page never terminates its shell. The workspace owns the view.
 }
 

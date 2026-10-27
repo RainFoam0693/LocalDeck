@@ -19,15 +19,22 @@ struct PerformanceData: Codable {
 }
 
 enum Deck {
-    static let background = Color(red: 0.055, green: 0.064, blue: 0.09)
-    static let sidebar = Color(red: 0.075, green: 0.085, blue: 0.115)
-    static let panel = Color(red: 0.085, green: 0.10, blue: 0.14)
-    static let console = Color(red: 0.035, green: 0.045, blue: 0.065)
-    static let text = Color(red: 0.91, green: 0.93, blue: 0.97)
-    static let muted = Color(red: 0.48, green: 0.53, blue: 0.63)
-    static let mint = Color(red: 0.30, green: 0.87, blue: 0.72)
-    static let accent = Color(red: 0.62, green: 0.57, blue: 0.98)
-    static let border = Color.white.opacity(0.055)
+    static func adaptive(_ dark: (Double, Double, Double), _ light: (Double, Double, Double)) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let c = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(calibratedRed: c.0, green: c.1, blue: c.2, alpha: 1)
+        })
+    }
+    static let background = adaptive((0.055, 0.064, 0.09), (0.96, 0.965, 0.98))
+    static let sidebar = adaptive((0.075, 0.085, 0.115), (0.925, 0.935, 0.96))
+    static let panel = adaptive((0.085, 0.10, 0.14), (1, 1, 1))
+    static let console = adaptive((0.035, 0.045, 0.065), (0.97, 0.975, 0.985))
+    static let text = adaptive((0.91, 0.93, 0.97), (0.10, 0.13, 0.20))
+    static let muted = adaptive((0.48, 0.53, 0.63), (0.38, 0.42, 0.50))
+    static let mint = adaptive((0.30, 0.87, 0.72), (0.02, 0.48, 0.36))
+    static let accent = adaptive((0.62, 0.57, 0.98), (0.40, 0.31, 0.80))
+    static let border = adaptive((0.135, 0.15, 0.19), (0.86, 0.88, 0.92))
+    static let button = adaptive((0.13, 0.14, 0.18), (0.92, 0.935, 0.96))
     static func percent(_ number: Double?) -> String { number.map { String(format: "%.1f%%", $0) } ?? "—" }
     static func bytes(_ number: Double?) -> String {
         guard let number else { return "—" }
@@ -35,12 +42,22 @@ enum Deck {
         return String(format: "%.0f MB", number / 1_048_576)
     }
 }
-struct DeckButton: ButtonStyle {
+struct DeckButton: PrimitiveButtonStyle {
     var primary = false
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 11, weight: .medium)).foregroundStyle(primary ? Color.white : Deck.text.opacity(0.85))
-            .padding(.horizontal, 13).padding(.vertical, 10)
-            .background(primary ? Deck.accent.opacity(configuration.isPressed ? 0.6 : 0.85) : Color.white.opacity(configuration.isPressed ? 0.10 : 0.045), in: RoundedRectangle(cornerRadius: 9))
+    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+        if #available(macOS 26.0, *) {
+            if primary {
+                Button(configuration).buttonStyle(.glassProminent).tint(Deck.accent).controlSize(.regular)
+            } else {
+                Button(configuration).buttonStyle(.glass).controlSize(.regular)
+            }
+        } else {
+            if primary {
+                Button(configuration).buttonStyle(.borderedProminent).tint(Deck.accent).controlSize(.regular)
+            } else {
+                Button(configuration).buttonStyle(.bordered).controlSize(.regular)
+            }
+        }
     }
 }
 struct Sparkline: Shape {

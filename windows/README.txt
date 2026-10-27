@@ -7,6 +7,8 @@ Dark caption, rounded corners and Mica are requested through public DWM attribut
 Mica requires Windows 11 22H2 or newer and follows system accessibility/composition settings.
 The interface uses a Fluent-inspired Qt layout (not WinUI), with Windows UI fonts,
 rounded cards, consistent dark controls and high-DPI scaling.
+Appearance: light, dark, or follow system using the three-segment capsule.
+The selection is saved; terminals keep their sessions when themes change.
 No administrator privileges requested. Place the EXE on your desktop if desired.
 
 Running services: TCP listeners, PID, ports, command line and working directory.

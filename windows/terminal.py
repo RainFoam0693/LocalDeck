@@ -5,8 +5,8 @@ import threading
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QKeySequence
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPlainTextEdit, QTabWidget, QPushButton, QFileDialog, QMessageBox, QMenu)
-from windows.fluent import label
+    QPlainTextEdit, QTabWidget, QTabBar, QToolButton, QPushButton, QFileDialog, QMessageBox, QMenu)
+from windows.fluent import label, is_dark, themed, appearance_icon
 
 COLORS = {'black':'#181818', 'red':'#e87575', 'green':'#83cd9b', 'brown':'#e6c078',
           'blue':'#7aaef3', 'magenta':'#c694e8', 'cyan':'#6bd3ce', 'white':'#e5ebf4',
@@ -16,7 +16,10 @@ COLORS = {'black':'#181818', 'red':'#e87575', 'green':'#83cd9b', 'brown':'#e6c07
 
 
 def color(value, default):
-    return COLORS.get(value, '#' + value if len(value) == 6 else default)
+    base = COLORS.get(value, '#' + value if len(value) == 6 else default)
+    if not is_dark() and value in COLORS:
+        return {'black':'#202020','red':'#b42324','green':'#14753a','brown':'#946000','blue':'#1756a9','magenta':'#883c9d','cyan':'#007a78','white':'#606060', 'brightblack':'#777777','brightred':'#bf3434','brightgreen':'#14753a','brightbrown':'#946000','brightblue':'#1756a9','brightmagenta':'#883c9d','brightcyan':'#007a78','brightwhite':'#4a4a4a'}.get(value, base)
+    return base
 
 
 class TerminalView(QPlainTextEdit):
@@ -24,9 +27,9 @@ class TerminalView(QPlainTextEdit):
         super().__init__(); self.session = session; self.version = -1
         self.setReadOnly(True); self.setUndoRedoEnabled(False)
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
-        font = QFont('Cascadia Mono', 11); font.setFamilies(['Cascadia Mono', 'Consolas', 'monospace'])
+        font = QFont('Cascadia Mono', 11); font.setFamilies(['Cascadia Mono', 'Consolas', 'Menlo', 'monospace'])
         self.setFont(font)
-        self.setStyleSheet('QPlainTextEdit { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 14px; padding: 14px; }')
+        self.setStyleSheet('QPlainTextEdit { font-family: "Cascadia Mono", "Consolas", "Menlo", monospace; font-size: 14px; padding: 14px; }')
         self.setAttribute(Qt.WA_InputMethodEnabled, True)
         self.setAccessibleName('交互终端')
 
@@ -84,10 +87,10 @@ class TerminalView(QPlainTextEdit):
                 segment = ''; previous = None
                 for col in range(columns):
                     cell = line.get(col)
-                    fg = color(cell.fg, '#e5ebf4') if cell else '#e5ebf4'
-                    bg = color(cell.bg, '#1c1c1c') if cell else '#1c1c1c'
+                    fg = color(cell.fg, themed('#e5ebf4')) if cell else themed('#e5ebf4')
+                    bg = color(cell.bg, themed('#1c1c1c')) if cell else themed('#1c1c1c')
                     if cell and cell.reverse: fg, bg = bg, fg
-                    if row == cursor[0] and col == cursor[1] and not cursor[2]: fg, bg = '#181818', '#76b9ed'
+                    if row == cursor[0] and col == cursor[1] and not cursor[2]: fg, bg = themed('#181818'), themed('#76b9ed')
                     style = (fg, bg, bool(cell and cell.bold), bool(cell and cell.underscore))
                     if previous is not None and style != previous:
                         writer.insertText(segment, self.char_format(previous)); segment = ''
@@ -116,7 +119,7 @@ class TerminalWorkspace(QWidget):
         for title, callback in [('选择目录', self.choose_directory), ('＋ PowerShell', lambda:self.add(shell='powershell')), ('＋ CMD', self.add)]:
             button = QPushButton(title); button.clicked.connect(lambda checked=False, fn=callback:fn()); bar.addWidget(button)
         layout.addLayout(bar)
-        self.tabs = QTabWidget(); self.tabs.setTabsClosable(True); self.tabs.setMovable(True); self.tabs.tabCloseRequested.connect(self.close_index)
+        self.tabs = QTabWidget(); self.tabs.setTabsClosable(False); self.tabs.setMovable(True); self.tabs.tabCloseRequested.connect(self.close_index)
         self.tabs.currentChanged.connect(self.focus_terminal); layout.addWidget(self.tabs, 1)
         self.empty = label('准备好开始工作了吗？\n\n选择 PowerShell 或 CMD，创建第一个终端。'); self.empty.setAlignment(Qt.AlignCenter)
         self.tabs.addTab(self.empty, '终端工作区'); self.tabs.tabBar().hide()
@@ -145,6 +148,11 @@ class TerminalWorkspace(QWidget):
         self.tabs.tabBar().show()
         view = TerminalView(session); self.sessions[view] = (session, view)
         index = self.tabs.addTab(view, f'{"PowerShell" if shell == "powershell" else "CMD"} {self.next_number}'); self.next_number += 1
+        close = QToolButton(self.tabs.tabBar()); view.close_button = close; close.setAutoRaise(True); close.setAccessibleName('关闭终端'); close.setToolTip('关闭终端')
+        close.setIcon(appearance_icon('close', themed('#b0b0b0'))); close.setFixedSize(24,24)
+        close.setStyleSheet('QToolButton { background: transparent; border: none; border-radius: 4px; } QToolButton:hover { background: rgba(128,128,128,0.2); }')
+        close.clicked.connect(lambda:self.close_index(self.tabs.indexOf(view)))
+        self.tabs.tabBar().setTabButton(index, QTabBar.RightSide, close)
         self.tabs.setTabToolTip(index, session.directory); self.tabs.setCurrentIndex(index); view.setFocus()
         return view
 

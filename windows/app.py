@@ -16,8 +16,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
     QPlainTextEdit, QFileDialog, QMessageBox, QDialog, QFormLayout, QDialogButtonBox,
-    QScrollArea, QSizePolicy)
-from windows.fluent import VERSION, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
+    QScrollArea, QSizePolicy, QTabBar)
+from windows.fluent import themed, appearance_icon, VERSION, AppearanceManager, AppearanceCapsule, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
 from windows.terminal import TerminalWorkspace
 
 
@@ -35,7 +35,9 @@ class App(QMainWindow):
             from backend import server
             self.api = server.make_server(); self.base = 'http://127.0.0.1:' + str(self.api.server_port)
             threading.Thread(target=self.api.serve_forever, daemon=True).start()
+        self.appearance = AppearanceManager(QApplication.instance(), persist=not preview)
         self.build_ui()
+        self.appearance.changed.connect(self.theme_changed)
         self.poll_timer = QTimer(self); self.poll_timer.timeout.connect(self.poll); self.poll_timer.start(60)
         self.refresh_timer = QTimer(self); self.refresh_timer.timeout.connect(self.refresh); self.refresh_timer.start(4000)
         self.metric_timer = QTimer(self); self.metric_timer.timeout.connect(self.metrics_tick); self.metric_timer.start(2000)
@@ -44,6 +46,14 @@ class App(QMainWindow):
             from windows.preview import fixture
             self.render(fixture())
         else: self.refresh()
+
+    def theme_changed(self, dark):
+        self.native_attributes = apply_native_window(self)
+        for session, view in self.terminals.sessions.values():
+            view.version = -1
+            close = self.terminals.tabs.tabBar().tabButton(self.terminals.tabs.indexOf(view), QTabBar.RightSide)
+            if close: close.setIcon(appearance_icon('close', themed('#b0b0b0')))
+        self.live_list.viewport().update(); self.task_list.viewport().update()
 
     def button(self, text, callback, name=None):
         widget = QPushButton(text)
@@ -61,7 +71,7 @@ class App(QMainWindow):
         for index, title in enumerate(['服务概览', '启动项', '终端工作区']):
             button = self.button(title, lambda i=index:self.select_page(i), 'nav'); button.setCheckable(True)
             button.setAccessibleName(title); nav.addWidget(button); self.nav_buttons.append(button)
-        nav.addStretch(); nav.addWidget(label('●  此 Windows PC', 'muted')); nav.addSpacing(8)
+        nav.addStretch(); self.appearance_capsule = AppearanceCapsule(self.appearance); nav.addWidget(self.appearance_capsule); nav.addSpacing(14); nav.addWidget(label('●  此 Windows PC', 'muted')); nav.addSpacing(8)
         nav.addWidget(label('LocalDeck '+VERSION, 'muted')); layout.addWidget(sidebar)
         content = QWidget(); content_layout = QVBoxLayout(content); content_layout.setContentsMargins(10, 12, 0, 0); content_layout.setSpacing(18)
         top = QHBoxLayout(); self.title_label = label('服务概览', 'heading'); top.addWidget(self.title_label); top.addStretch()
@@ -113,7 +123,7 @@ class App(QMainWindow):
         left_layout.addLayout(actions); split.addWidget(left)
         right = panel(); right_layout = QVBoxLayout(right); right_layout.setContentsMargins(16, 14, 16, 16)
         heading = QHBoxLayout(); heading.addWidget(label('实时日志', 'section')); heading.addStretch(); heading.addWidget(label('最近 100 KB', 'muted')); right_layout.addLayout(heading)
-        self.log = QPlainTextEdit(); self.log.setReadOnly(True); self.log.setPlaceholderText('选择一个启动项，查看运行日志。'); self.log.setLineWrapMode(QPlainTextEdit.NoWrap); self.log.setStyleSheet('font-family: "Cascadia Mono", "Consolas", monospace; font-size: 13px;'); right_layout.addWidget(self.log)
+        self.log = QPlainTextEdit(); self.log.setReadOnly(True); self.log.setPlaceholderText('选择一个启动项，查看运行日志。'); self.log.setLineWrapMode(QPlainTextEdit.NoWrap); self.log.setStyleSheet('font-family: "Cascadia Mono", "Consolas", "Menlo", monospace; font-size: 13px;'); right_layout.addWidget(self.log)
         split.addWidget(right); split.setSizes([380, 600]); layout.addWidget(split, 1); self.tabs.addWidget(page)
 
     def select_page(self, index):
