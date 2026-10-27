@@ -113,7 +113,7 @@ struct ServiceInspector: View {
     let item: Listener
     let stop: () -> Void
     var body: some View {
-        ScrollView { VStack(alignment: .leading, spacing: 20) {
+        VStack(spacing: 0) { ScrollView { VStack(alignment: .leading, spacing: 20) {
             HStack { Text("服务详情").font(.system(size: 11, weight: .medium)).foregroundStyle(Deck.muted); Spacer(); Text("RUNNING").font(.system(size: 8, weight: .medium)).tracking(1).foregroundStyle(Deck.mint) }
             VStack(alignment: .leading, spacing: 7) { Text(item.name).font(.system(size: 21, weight: .semibold)).textSelection(.enabled); Text("进程 \(String(item.pid))").font(.system(size: 10, design: .monospaced)).foregroundStyle(Deck.muted) }
             HStack {
@@ -125,8 +125,11 @@ struct ServiceInspector: View {
             VStack(alignment: .leading, spacing: 9) { caption("监听端口"); ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 6) { ForEach(item.ports, id: \.self) { port in Button(":\(String(port))") { NSWorkspace.shared.open(URL(string: "http://localhost:\(port)")!) }.buttonStyle(DeckButton()) } } } }
             VStack(alignment: .leading, spacing: 9) { caption("工作目录"); Text(item.directory.isEmpty ? "无法读取目录" : item.directory).font(.system(size: 10)).foregroundStyle(Deck.text.opacity(0.75)).textSelection(.enabled).lineLimit(3) }
             VStack(alignment: .leading, spacing: 9) { caption("启动命令"); ScrollView { Text(item.command).font(.system(size: 10, design: .monospaced)).foregroundStyle(Deck.muted).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 115).padding(12).background(Deck.console, in: RoundedRectangle(cornerRadius: 9)) }
-            HStack { Button { NSWorkspace.shared.open(URL(fileURLWithPath: item.directory)) } label: { Label("目录", systemImage: "folder") }.buttonStyle(DeckButton()).disabled(item.directory.isEmpty); Spacer(); Button(action: stop) { Label("停止", systemImage: "stop") }.buttonStyle(DeckButton()) }
-        }.padding(20) }.background(Deck.panel, in: RoundedRectangle(cornerRadius: 15)).overlay(RoundedRectangle(cornerRadius: 15).stroke(Deck.border))
+
+        }.padding(20) }
+            Rectangle().fill(Deck.border).frame(height: 1)
+HStack { Button { NSWorkspace.shared.open(URL(fileURLWithPath: item.directory)) } label: { Label("目录", systemImage: "folder") }.buttonStyle(DeckButton()).disabled(item.directory.isEmpty); Spacer(); Button(action: stop) { Label("停止", systemImage: "stop") }.buttonStyle(DeckButton()) }.padding(16)
+        }.background(Deck.panel, in: RoundedRectangle(cornerRadius: 15)).overlay(RoundedRectangle(cornerRadius: 15).stroke(Deck.border))
     }
     func caption(_ title: String) -> some View { Text(title).font(.system(size: 10, weight: .medium)).foregroundStyle(Deck.muted) }
 }

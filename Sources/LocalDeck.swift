@@ -162,7 +162,7 @@ struct ContentView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("工作空间  /  \(section == "overview" ? "服务概览" : "启动项")").font(.system(size: 10)).foregroundStyle(Deck.muted)
-                Text(section == "overview" ? "掌握每一个本地服务" : "让开发任务随时就绪").font(.system(size: 25, weight: .semibold))
+                Text(section == "overview" ? "服务概览" : "启动项").font(.system(size: 25, weight: .semibold))
             }
             Spacer()
             Button { Task { await store.refresh(); await store.refreshMetrics() } } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(DeckButton())

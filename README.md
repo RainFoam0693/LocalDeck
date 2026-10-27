@@ -29,6 +29,19 @@ python3 scripts/test_backend.py
 
 构建要求 Xcode Command Line Tools，首次构建会通过 SwiftPM 下载固定版本的 SwiftTerm。编译产物为 `dist/LocalDeck.app`。打包脚本另外生成 DMG（含 Applications 快捷方式）、ZIP 和 SHA-256 校验文件。图标由 `scripts/make-icon.swift` 绘制并生成完整尺寸的 ICNS。
 
+## 性能看板与新界面（0.4.0）
+
+两端采用侧边导航、实时性能卡片、可选择的服务卡片及独立详情面板。搜索名称、端口或命令，切换 CPU 排序后可优先查看占用较高的服务；命令和目录在详情中查看，列表保留关键状态。
+
+- 系统 CPU、物理内存的使用比例与近 2 分钟趋势；性能数据每 2 秒在后台采样。
+- LocalDeck 自身的 CPU、驻留内存（MB/GB）和物理内存占比；不合并用户任务或终端 Shell 的占用。
+- 服务进程的 CPU、驻留内存及内存占比。托管启动项合并其进程树的占用。
+- CPU 按整机逻辑核心总容量归一化为 0–100%，与单核心可以达到 100% 的显示方式不同。
+- 内存比例以物理内存为分母。Windows 使用系统可用内存，Mac 可用内存按 free + inactive 计算，包含可回收缓存；与系统活动监视器的统计口径可能不同。进程内存是 RSS，共享页面可能重复计入。
+- 首次 CPU 采样、受保护进程或采集失败显示“—”，不会用虚构数值填补。
+
+验证：`python scripts/test_performance.py`，覆盖 CPU 归一化、PID 重用、无权限数据、进程树汇总和真实系统采样。
+
 ## 应用内终端（0.3.0）
 
 Mac 和 Windows 都提供独立的终端工作区，可同时打开多个终端标签。切换终端标签或切到服务列表、启动项页面，只改变可见界面；会话、当前目录、环境变量、运行中的命令和输出都保留。终端会话仅在当前应用运行期间存在，不会在退出后恢复。
@@ -42,7 +55,7 @@ Mac 终端烟雾测试：`dist/LocalDeck.app/Contents/MacOS/LocalDeck --terminal
 
 ## Windows 版
 
-适用于 Windows 10/11 x64。下载 [Windows Release](https://github.com/RainFoam0693/LocalDeck/releases/tag/windows-v0.3.1) 中的 EXE 或 ZIP，双击运行；可以放在桌面，内置 Python 与 Tcl/Tk，无需另外安装运行时。当前 Windows 包未做 Authenticode 签名。
+适用于 Windows 10/11 x64。下载 [Windows Release](https://github.com/RainFoam0693/LocalDeck/releases/tag/windows-v0.4.0) 中的 EXE 或 ZIP，双击运行；可以放在桌面，内置 Python 与 Tcl/Tk，无需另外安装运行时。当前 Windows 包未做 Authenticode 签名。
 
 功能包括 TCP 监听进程扫描、搜索、打开浏览器和目录、确认后停止进程、命令启动项、启停/重启和最近 100 KB 日志。Windows 命令通过 `cmd.exe /d /s /c` 执行；配置与日志在 `%LOCALAPPDATA%\LocalDeck`。受保护进程可能无法读取信息或停止，程序不会请求提权。Windows 停止操作会终止目标进程；托管任务会同时停止其子进程。使用 `start` 等脱离管理 shell 的任务可能继续运行。「应用内终端」支持独立的 CMD / PowerShell 会话。
 
@@ -55,7 +68,7 @@ python scripts/test_backend.py
 ./windows/build.ps1
 ```
 
-GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.3.1-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
+GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.4.0-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
 
 ## 后端 API
 

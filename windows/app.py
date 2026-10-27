@@ -84,7 +84,7 @@ class App(tk.Tk):
         heading = ttk.Frame(outer); heading.pack(fill='x')
         titles = ttk.Frame(heading); titles.pack(side='left')
         self.breadcrumb = ttk.Label(titles, text='工作空间  /  服务概览', style='Muted.TLabel', font=('Segoe UI',9)); self.breadcrumb.pack(anchor='w')
-        self.page_title = ttk.Label(titles, text='掌握每一个本地服务', font=('Segoe UI',23,'bold')); self.page_title.pack(anchor='w', pady=(8,0))
+        self.page_title = ttk.Label(titles, text='服务概览', font=('Segoe UI',23,'bold')); self.page_title.pack(anchor='w', pady=(8,0))
         ttk.Button(heading,text='＋ 添加启动项',style='Accent.TButton',command=self.add_dialog).pack(side='right')
         self.refresh_button=ttk.Button(heading,text='↻',command=self.refresh);self.refresh_button.pack(side='right',padx=10)
         self.performance = PerformanceStrip(outer); self.performance.pack(fill='x', pady=(24,22))
@@ -130,7 +130,7 @@ class App(tk.Tk):
         index=self.tabs.index(self.tabs.select())
         for i,button in enumerate(self.nav_buttons):button.configure(bg='#29263f' if i==index else SIDEBAR,fg=TEXT if i==index else MUTED)
         self.breadcrumb.configure(text='工作空间  /  '+['服务概览','启动项','终端工作区'][index])
-        self.page_title.configure(text=['掌握每一个本地服务','让开发任务随时就绪','让每个想法持续运行'][index])
+        self.page_title.configure(text=['服务概览','启动项','终端工作区'][index])
 
     def toggle_sort(self):self.sort_cpu=not self.sort_cpu;self.render_listeners()
 
