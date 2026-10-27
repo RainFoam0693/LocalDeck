@@ -148,7 +148,7 @@ struct ContentView: View {
                 HStack { Image(systemName: "desktopcomputer"); Text("此 Mac").fontWeight(.medium); Spacer(); Circle().fill(Deck.mint).frame(width: 6, height: 6) }
                 Text("服务、性能和终端\n都在一个工作空间。").font(.system(size: 11)).foregroundStyle(Deck.muted).lineSpacing(5)
             }.font(.system(size: 12)).padding(16).background(Deck.panel, in: RoundedRectangle(cornerRadius: 14))
-            Text("LOCALDECK  /  0.4.0").font(.system(size: 9, design: .monospaced)).tracking(1).foregroundStyle(Deck.muted.opacity(0.65)).padding(.top, 20)
+            Text("LOCALDECK  /  \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "DEV")").font(.system(size: 9, design: .monospaced)).tracking(1).foregroundStyle(Deck.muted.opacity(0.65)).padding(.top, 20)
         }.padding(.horizontal, 20).padding(.top, 44).padding(.bottom, 24).frame(width: 205)
     }
     func navigation(_ id: String, title: String, icon: String, count: Int) -> some View {

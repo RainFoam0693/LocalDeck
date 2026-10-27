@@ -3,12 +3,12 @@ set -euo pipefail
 cd "${0:A:h:h}"
 if [[ "${1:-}" != "--skip-build" ]]; then ./scripts/build.sh; fi
 APP="$PWD/dist/LocalDeck.app"
-NAME="LocalDeck-0.4.0-macOS-arm64"
+NAME="LocalDeck-0.4.1-macOS-arm64"
 STAGING=$(mktemp -d /tmp/localdeck-package.XXXXXX)
 ditto "$APP" "$STAGING/LocalDeck.app"
 ln -s /Applications "$STAGING/Applications"
 cat > "$STAGING/安装说明.txt" <<'TXT'
-LocalDeck 0.4.0 · macOS Apple Silicon
+LocalDeck 0.4.1 · macOS Apple Silicon
 
 将 LocalDeck.app 拖到 Applications，即可安装。
 需要 macOS 13+ 和已安装的 Python 3。

@@ -29,6 +29,10 @@ python3 scripts/test_backend.py
 
 构建要求 Xcode Command Line Tools，首次构建会通过 SwiftPM 下载固定版本的 SwiftTerm。编译产物为 `dist/LocalDeck.app`。打包脚本另外生成 DMG（含 Applications 快捷方式）、ZIP 和 SHA-256 校验文件。图标由 `scripts/make-icon.swift` 绘制并生成完整尺寸的 ICNS。
 
+## macOS 原生窗口控件（0.4.1）
+
+Mac 版显式使用当前 Xcode SDK 编译和链接，避免把最低兼容版本误写为链接 SDK。macOS 27 使用系统原生窗口控制按钮及其系统动效；最低运行版本仍为 macOS 13。构建脚本会检查实际链接 SDK 与当前 SDK 的主版本是否一致。
+
 ## 性能看板与新界面（0.4.0）
 
 两端采用侧边导航、实时性能卡片、可选择的服务卡片及独立详情面板。搜索名称、端口或命令，切换 CPU 排序后可优先查看占用较高的服务；命令和目录在详情中查看，列表保留关键状态。

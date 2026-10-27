@@ -3,9 +3,17 @@ set -euo pipefail
 cd "${0:A:h:h}"
 APP="$PWD/dist/LocalDeck.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" /tmp/localdeck-module-cache
-GITHUB_ACTIONS=true swift build -c release --product LocalDeck --disable-sandbox
-BIN_DIR=$(swift build -c release --show-bin-path)
+# Pass the active SDK through both compilation and linking for native AppKit appearance.
+SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
+GITHUB_ACTIONS=true swift build --build-system native -c release --product LocalDeck --sdk "$SDK_PATH" --disable-sandbox
+BIN_DIR=$(swift build --build-system native -c release --sdk "$SDK_PATH" --show-bin-path)
 cp "$BIN_DIR/LocalDeck" "$APP/Contents/MacOS/LocalDeck"
+SDK_VERSION=$(xcrun --sdk macosx --show-sdk-version)
+LINKED_SDK=$(xcrun vtool -show-build "$APP/Contents/MacOS/LocalDeck" | awk '$1 == "sdk" { print $2; exit }')
+if [[ "${LINKED_SDK%%.*}" != "${SDK_VERSION%%.*}" ]]; then
+    print -u2 "Linked SDK $LINKED_SDK does not match active SDK $SDK_VERSION"
+    exit 1
+fi
 for bundle in "$BIN_DIR/"*.bundle(N); do
     ditto "$bundle" "$APP/Contents/Resources/${bundle:t}"
 done
@@ -24,8 +32,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>dev.localdeck.mac</string>
 <key>CFBundleIconFile</key><string>LocalDeck</string>
 <key>CFBundleName</key><string>LocalDeck</string>
-<key>CFBundleVersion</key><string>4</string>
-<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>5</string>
+<key>CFBundleShortVersionString</key><string>0.4.1</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
