@@ -18,12 +18,13 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 from windows.fluent import themed, appearance_icon, VERSION, AppearanceManager, AppearanceCapsule, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
 from windows.terminal import TerminalWorkspace
 from windows.api_client import LocalAPIClient
+from windows.updates import AppUpdater
 
 
 class App(QMainWindow):
     def __init__(self, smoke=False, preview=False):
         super().__init__()
-        self.smoke = smoke; self.preview = preview; self.closing = False; self.closed = False
+        self.smoke = smoke; self.preview = preview; self.closing = False; self.closed = False; self.confirming_quit = False
         self.data = {'services': [], 'listeners': []}; self.selected_log = None; self.sort_cpu = False
         self.results = queue.Queue(); self.pending = set(); self.errors = []
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
@@ -35,7 +36,10 @@ class App(QMainWindow):
             self.api = server.make_server(); self.client = LocalAPIClient(self.api.server_port, self.api.token)
             threading.Thread(target=self.api.serve_forever, daemon=True).start()
         self.appearance = AppearanceManager(QApplication.instance(), persist=not preview)
+        self.updater = AppUpdater(self, automatic=not preview and not smoke and "--terminal-smoke-test" not in sys.argv)
         self.build_ui()
+        self.updater.changed.connect(self.update_update_banner)
+        self.update_update_banner()
         self.appearance.changed.connect(self.theme_changed)
         self.poll_timer = QTimer(self); self.poll_timer.timeout.connect(self.poll); self.poll_timer.start(60)
         self.refresh_timer = QTimer(self); self.refresh_timer.timeout.connect(self.refresh); self.refresh_timer.start(4000)
@@ -82,6 +86,11 @@ class App(QMainWindow):
         self.settings_button.setAccessibleName('设置'); self.settings_button.setToolTip('设置'); top.addWidget(self.settings_button)
         self.refresh_button = self.button('刷新', self.refresh); top.addWidget(self.refresh_button)
         top.addWidget(self.button('＋ 添加启动项', self.add_dialog, 'primary')); content_layout.addLayout(top)
+        self.update_banner = panel(); update_layout = QHBoxLayout(self.update_banner)
+        self.update_label = label(''); self.update_label.setWordWrap(True); update_layout.addWidget(self.update_label, 1)
+        self.update_action = self.button('查看更新', lambda:self.updater.open_download() if self.updater.path else self.updater.confirm_download(self), 'primary')
+        update_layout.addWidget(self.update_action); update_layout.addWidget(self.button('稍后', self.updater.dismiss))
+        content_layout.addWidget(self.update_banner)
         caption = label('在一个工作空间，管理本机服务与终端。', 'muted'); content_layout.addWidget(caption)
         metrics = QHBoxLayout(); metrics.setSpacing(12); self.cards = []
         for title, color in [('系统 CPU', '#76b9ed'), ('物理内存', '#c0a4ed'), ('LocalDeck 自身', '#87d4bb')]:
@@ -92,10 +101,43 @@ class App(QMainWindow):
         self.status = label('正在连接本机服务…', 'muted'); content_layout.addWidget(self.status)
         layout.addWidget(content, 1); self.select_page(0)
 
+    def update_update_banner(self):
+        updater = self.updater
+        self.update_banner.setVisible(bool(updater.release) and not updater.dismissed)
+        self.update_label.setText(('LocalDeck '+updater.release['version']+' 可用 · ' if updater.release else '') + ('查看更新说明，由你决定何时下载。' if updater.message.startswith('发现新版本') else updater.message))
+        self.update_action.setText('打开下载位置' if updater.path else ('正在下载…' if updater.downloading else '查看更新'))
+        self.update_action.setEnabled(not updater.busy)
+
     def settings_dialog(self):
-        dialog = QDialog(self); dialog.setWindowTitle('设置'); dialog.resize(560, 440)
-        layout = QVBoxLayout(dialog); layout.setSpacing(16)
+        dialog = QDialog(self); dialog.setWindowTitle('设置'); dialog.resize(620, 760)
+        outer = QVBoxLayout(dialog)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.NoFrame); scroll.setStyleSheet('QScrollArea { background: transparent; border: none; }')
+        body = QWidget(); layout = QVBoxLayout(body); layout.setSpacing(16); scroll.setWidget(body); outer.addWidget(scroll, 1)
         layout.addWidget(label('设置', 'section'))
+        layout.addWidget(label('软件更新', 'section'))
+        update_status = label(self.updater.message); update_status.setWordWrap(True); layout.addWidget(update_status)
+        checked = label('上次成功检查：'+self.updater.last_checked, 'muted'); layout.addWidget(checked)
+        auto = QCheckBox('每周一、三、五自动检查更新'); auto.setChecked(self.updater.enabled); auto.toggled.connect(self.updater.set_enabled); layout.addWidget(auto)
+        schedule_tip = label('应用运行时每天检查一次。只提示新版本，下载与替换由你确认。', 'muted'); schedule_tip.setWordWrap(True); layout.addWidget(schedule_tip)
+        update_buttons = QHBoxLayout()
+        check = self.button('检查更新', self.updater.check); update_buttons.addWidget(check)
+        install = self.button('下载更新', lambda:self.updater.open_download() if self.updater.path else self.updater.confirm_download(dialog), 'primary'); update_buttons.addWidget(install)
+        update_buttons.addWidget(self.button('GitHub 发行页', self.updater.open_releases)); layout.addLayout(update_buttons)
+        def update_settings():
+            auth_status.setText('已保存到 Windows 凭据管理器' if self.updater.authorized else '公开仓库无需授权；私有仓库需要只读令牌。')
+            update_status.setText(self.updater.message); checked.setText('上次成功检查：'+self.updater.last_checked)
+            check.setEnabled(not self.updater.busy); check.setText('正在检查…' if self.updater.busy and not self.updater.downloading else '检查更新')
+            install.setVisible(bool(self.updater.release)); install.setEnabled(not self.updater.busy); install.setText('打开下载位置' if self.updater.path else '下载更新')
+        layout.addWidget(label('私有仓库授权（可选）', 'section'))
+        auth_status = label('', 'muted'); layout.addWidget(auth_status)
+        token = QLineEdit(); token.setEchoMode(QLineEdit.Password); token.setPlaceholderText('私有仓库访问令牌（公开仓库可留空）'); layout.addWidget(token)
+        auth_actions = QHBoxLayout()
+        def save_auth(): self.updater.save_authorization(token.text()); token.clear()
+        auth_actions.addWidget(self.button('保存授权', save_auth)); auth_actions.addWidget(self.button('移除授权', lambda:self.updater.save_authorization('')))
+        auth_actions.addWidget(self.button('创建只读令牌', lambda:webbrowser.open('https://github.com/settings/personal-access-tokens/new'))); layout.addLayout(auth_actions)
+        auth_tip = label('选择 LocalDeck 仓库，仅开启 Contents → Read-only。授权保存在 Windows 凭据管理器。', 'muted'); auth_tip.setWordWrap(True); layout.addWidget(auth_tip)
+        self.updater.changed.connect(update_settings); update_settings()
         layout.addWidget(label('文件访问', 'section'))
         text = label('Windows 使用当前账户的文件访问权限，无需开启 macOS 的“完全磁盘访问”。受保护的系统目录和其他账户文件仍按系统权限管理。', 'muted')
         text.setWordWrap(True); layout.addWidget(text)
@@ -116,8 +158,10 @@ class App(QMainWindow):
         author_layout.addLayout(identity); author_layout.addStretch()
         author_layout.addWidget(self.button('访问主页', lambda:webbrowser.open('https://github.com/RainFoam0693')))
         layout.addWidget(author)
-        done = QDialogButtonBox(QDialogButtonBox.Close); done.rejected.connect(dialog.reject); layout.addWidget(done)
-        dialog.exec()
+        done = QDialogButtonBox(QDialogButtonBox.Close); done.button(QDialogButtonBox.Close).setText('完成'); done.rejected.connect(dialog.reject); outer.addWidget(done)
+        apply_native_window(dialog)
+        try: dialog.exec()
+        finally: self.updater.changed.disconnect(update_settings); dialog.deleteLater()
 
     def build_live(self):
         page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(12)
@@ -300,10 +344,27 @@ class App(QMainWindow):
             dialog.accept(); self.select_page(1); self.submit(lambda:self.request('/services', body), lambda _:self.refresh())
         actions.accepted.connect(save); layout.addWidget(actions); apply_native_window(dialog); dialog.exec()
 
+    def confirm_terminal_exit(self, active):
+        dialog = QMessageBox(self); dialog.setWindowTitle('退出 LocalDeck'); dialog.setIcon(QMessageBox.Warning)
+        dialog.setText(f'仍有 {len(active)} 个终端正在运行任务')
+        dialog.setInformativeText('退出会结束这些终端中的任务。是否仍要退出？')
+        cancel = dialog.addButton('取消', QMessageBox.RejectRole)
+        stop = dialog.addButton('结束任务并退出', QMessageBox.DestructiveRole)
+        dialog.setDefaultButton(cancel); dialog.setEscapeButton(cancel)
+        dialog.exec()
+        return dialog.clickedButton() is stop
+
     def closeEvent(self, event):
         if self.closed: event.accept(); return
         event.ignore()
-        if self.closing: return
+        if self.closing or self.confirming_quit: return
+        active = self.terminals.active_sessions()
+        if active:
+            self.confirming_quit = True
+            try: confirmed = self.confirm_terminal_exit(active)
+            finally: self.confirming_quit = False
+            if not confirmed: return
+        self.updater.shutdown()
         self.closing = True; self.terminals.closing = True; self.centralWidget().setEnabled(False); self.status.setText('正在停止托管任务与终端…'); self.refresh_timer.stop(); self.metric_timer.stop(); self.terminals.timer.stop()
         def shutdown():
             error = None

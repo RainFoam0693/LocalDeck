@@ -4,7 +4,7 @@ on:
   push:
     tags: ['windows-v*', 'v*']
     branches: [main]
-    paths: ['backend/**', 'windows/**', 'scripts/test_backend.py', 'scripts/test_performance.py', '.github/workflows/windows.yml']
+    paths: ['backend/**', 'windows/**', 'scripts/test_backend.py', 'scripts/test_performance.py', 'scripts/test_updates.py', '.github/workflows/windows.yml']
 permissions:
   contents: read
 jobs:
@@ -29,9 +29,17 @@ jobs:
         run: python scripts/test_backend.py
       - name: Test loopback API with system proxy enabled
         run: python windows/test_api_client.py
+      - name: Test release discovery and update integrity
+        run: python scripts/test_updates.py
+      - name: Test update UI and Credential Manager
+        run: python windows/test_updates.py
       - name: Test file browser and terminal scrollback
         shell: pwsh
         run: |
+          python windows/test_exit_confirmation.py
+          if ($LASTEXITCODE -ne 0) { throw 'Exit confirmation tests failed' }
+          python windows/test_terminal_identity.py
+          if ($LASTEXITCODE -ne 0) { throw 'Terminal identity tests failed' }
           python windows/test_files.py
           if ($LASTEXITCODE -ne 0) { throw 'File browser tests failed' }
           python windows/test_terminal_scroll.py
@@ -92,8 +100,8 @@ jobs:
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-0.5.1-Windows-x64.exe
-            dist/LocalDeck-0.5.1-Windows-x64.zip
+            dist/LocalDeck-0.6.0-Windows-x64.exe
+            dist/LocalDeck-0.6.0-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -102,5 +110,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.5.1 · Windows 11 · 本机数据读取修复' --notes-file windows/RELEASE.md dist/LocalDeck-0.5.1-Windows-x64.exe dist/LocalDeck-0.5.1-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.6.0 · macOS 与 Windows · 终端任务与应用更新' --notes-file windows/RELEASE.md dist/LocalDeck-0.6.0-Windows-x64.exe dist/LocalDeck-0.6.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

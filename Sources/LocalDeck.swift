@@ -17,6 +17,7 @@ struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Liste
 
 @MainActor final class Store: ObservableObject {
     let terminals = TerminalWorkspace()
+    let updater = AppUpdater()
     @Published var state = ServiceSnapshot(services: [], listeners: [])
     @Published var performance: PerformanceData?
     @Published var error = ""
@@ -81,7 +82,7 @@ struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Liste
         do { _ = try await request(path, body: body); await refresh() }
         catch { self.error = error.localizedDescription }
     }
-    func shutdown() { terminals.shutdown(); process?.terminate() }
+    func shutdown() { updater.shutdown(); terminals.shutdown(); process?.terminate() }
 }
 
 struct ContentView: View {
@@ -108,6 +109,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             workspaceBar
+            UpdateBanner(updater: store.updater)
             VStack(spacing: 0) {
                 if section == "terminals" {
                     TerminalWorkspaceView(workspace: store.terminals)
@@ -135,7 +137,7 @@ struct ContentView: View {
             Button("停止进程", role: .destructive) { if let item = pending { Task { await store.act("/processes/stop", body: ["pid": item.pid, "command": item.command]) } }; pending = nil }
         }
         .sheet(isPresented: $adding) { addSheet }
-        .sheet(isPresented: $showingSettings) { DeckSettingsView(workspace: store.terminals, files: store.terminals.files) }
+        .sheet(isPresented: $showingSettings) { DeckSettingsView(workspace: store.terminals, files: store.terminals.files, updater: store.updater) }
     }
     var workspaceBar: some View {
         HStack(spacing: 20) {
@@ -257,6 +259,11 @@ struct ContentView: View {
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
             guard output(first).contains("ONE_BACKGROUND"), output(second).contains("TWO_BACKGROUND"), !output(first).contains("TWO_BACKGROUND") else { throw NSError(domain: "Background terminal continuity failed", code: 1) }
+            for _ in 0..<50 {
+                if workspace.activeSessions.isEmpty { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            guard workspace.activeSessions.isEmpty else { throw NSError(domain: "Idle terminals marked busy", code: 30) }
             // Feed many independent output chunks, including beyond the history limit.
             let scrolling = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
             scrolling.getTerminal().changeHistorySize(100)
@@ -287,9 +294,35 @@ struct ContentView: View {
             try await Task.sleep(nanoseconds: 300_000_000)
             guard await first.currentDirectory()?.resolvingSymlinksInPath().path == targetDirectory.resolvingSymlinksInPath().path else { throw NSError(domain: "Quoted cd failed", code: 12) }
             guard await second.currentDirectory()?.resolvingSymlinksInPath().path != targetDirectory.resolvingSymlinksInPath().path else { throw NSError(domain: "cd changed other tab", code: 13) }
-            section = "managed"
+            section = "terminals"
             first.view.send(txt: "sleep 30\r")
             try await Task.sleep(nanoseconds: 300_000_000)
+            guard first.hasActiveJobs, !second.hasActiveJobs else { throw NSError(domain: "Foreground job detection failed", code: 31) }
+            guard let window = first.view.window else { throw NSError(domain: "Missing terminal window", code: 32) }
+            for closeWindow in [false, true] {
+                var cancelled = false
+                func cancelButton(in view: NSView) -> NSButton? {
+                    if let button = view as? NSButton, button.title == "取消" { return button }
+                    for child in view.subviews { if let button = cancelButton(in: child) { return button } }
+                    return nil
+                }
+                let cancelTimer = Timer(timeInterval: 0.05, repeats: true) { _ in
+                    MainActor.assumeIsolated {
+                        if !cancelled, let content = NSApp.modalWindow?.contentView, let button = cancelButton(in: content) {
+                            cancelled = true; button.performClick(nil)
+                        }
+                    }
+                }
+                RunLoop.main.add(cancelTimer, forMode: .common)
+                RunLoop.main.add(cancelTimer, forMode: .modalPanel)
+                if closeWindow { window.performClose(nil) } else { NSApp.terminate(nil) }
+                for _ in 0..<100 {
+                    if cancelled { break }
+                    try await Task.sleep(nanoseconds: 50_000_000)
+                }
+                cancelTimer.invalidate()
+                guard cancelled, window.isVisible, first.hasActiveJobs, kill(first.view.process.shellPid, 0) == 0 else { throw NSError(domain: "Cancelling quit lost window or task", code: 33) }
+            }
             do { try workspace.changeDirectory(fileRoot); throw NSError(domain: "Busy terminal accepted cd", code: 14) }
             catch TerminalFileError.busyTerminal { }
             first.view.send(txt: "\u{03}")
@@ -300,6 +333,19 @@ struct ContentView: View {
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
             guard output(first).contains("ONE_INTERRUPT") else { throw NSError(domain: "Ctrl+C failed", code: 2) }
+            first.view.send(txt: "sleep 30 & LOCALDECK_BG=$!; printf '%s_BGREADY\\n' \"$LOCALDECK_TAB\"\r")
+            for _ in 0..<50 {
+                if output(first).contains("ONE_BGREADY") { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            guard tcgetpgrp(first.view.process.childfd) == getpgid(first.view.process.shellPid), first.hasActiveJobs else { throw NSError(domain: "Background job detection failed", code: 34) }
+            first.view.send(txt: "kill \"$LOCALDECK_BG\"; wait \"$LOCALDECK_BG\" 2>/dev/null; unset LOCALDECK_BG\r")
+            for _ in 0..<50 {
+                if !first.hasActiveJobs { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            guard !first.hasActiveJobs else { throw NSError(domain: "Finished job still marked busy", code: 35) }
             section = "terminals"; workspace.selected = first.id
             try await Task.sleep(nanoseconds: 300_000_000)
             let firstPID = first.view.process.shellPid, secondPID = second.view.process.shellPid
@@ -309,15 +355,31 @@ struct ContentView: View {
             workspace.shutdown()
             try await Task.sleep(nanoseconds: 500_000_000)
             guard kill(secondPID, 0) != 0 else { throw NSError(domain: "Terminal shutdown failed", code: 4) }
-            result = ["ok": true, "tabs": 2, "pageSwitch": true, "ctrlC": true, "closeIsolation": true, "exitCleanup": true, "themeContinuity": true, "fileListing": true, "fileOperations": true, "quotedCD": true, "busyCDGuard": true, "historyScroll": true]
+            result = ["ok": true, "tabs": 2, "pageSwitch": true, "ctrlC": true, "closeIsolation": true, "exitCleanup": true, "themeContinuity": true, "fileListing": true, "fileOperations": true, "quotedCD": true, "busyCDGuard": true, "historyScroll": true, "exitProtection": true, "backgroundJobDetection": true]
         } catch { result["error"] = String(describing: error) }
         workspace.shutdown()
         if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted) { try? data.write(to: URL(fileURLWithPath: "/tmp/localdeck-mac-terminal-smoke.json")) }
         NSApp.terminate(nil)
     }
 }
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     var store: Store?
+    private var confirmingQuit = false
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if confirmingQuit { return .terminateCancel }
+        let active = store?.terminals.activeSessions ?? []
+        guard !active.isEmpty else { return .terminateNow }
+        confirmingQuit = true
+        defer { confirmingQuit = false }
+        let alert = NSAlert(); alert.alertStyle = .warning
+        alert.messageText = "仍有 \(active.count) 个终端正在运行任务"
+        let names = active.prefix(4).map { $0.title }.joined(separator: "、")
+        alert.informativeText = names + "\n退出会结束这些终端中的任务。是否仍要退出？"
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "结束任务并退出").hasDestructiveAction = true
+        sender.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ notification: Notification) { MainActor.assumeIsolated { store?.shutdown() } }
 }
@@ -325,6 +387,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store = Store()
     var body: some Scene {
-        WindowGroup { ContentView(store: store).onAppear { delegate.store = store; NSApp.activate(ignoringOtherApps: true) } }.windowStyle(.hiddenTitleBar)
+        WindowGroup { ContentView(store: store).background(ExitAwareWindow().frame(width: 0, height: 0)).onAppear { delegate.store = store; NSApp.activate(ignoringOtherApps: true) } }.windowStyle(.hiddenTitleBar)
     }
 }

@@ -201,6 +201,8 @@ class TerminalWorkspace(QWidget):
         if self.tabs.indexOf(self.empty) >= 0: self.tabs.removeTab(self.tabs.indexOf(self.empty))
         self.tabs.tabBar().show()
         view = TerminalView(session); self.sessions[view] = (session, view)
+        view.terminal_number = self.next_number
+        view.base_title = f'{"PowerShell" if shell == "powershell" else "CMD"} {self.next_number}'
         index = self.tabs.addTab(view, f'{"PowerShell" if shell == "powershell" else "CMD"} {self.next_number}'); self.next_number += 1
         close = QToolButton(self.tabs.tabBar()); view.close_button = close; close.setAutoRaise(True); close.setAccessibleName('关闭终端'); close.setToolTip('关闭终端')
         close.setIcon(appearance_icon('close', themed('#b0b0b0'))); close.setFixedSize(24,24)
@@ -222,6 +224,12 @@ class TerminalWorkspace(QWidget):
                 if error: self.status.setText('终端启动失败：' + error)
                 else: self.attach(session, shell)
         except queue.Empty: pass
+        for terminal, (item, _) in self.sessions.items():
+            identity = getattr(item, 'identity', None) if item.running else None
+            index = self.tabs.indexOf(terminal)
+            title = f'{identity[0]} · {terminal.terminal_number}' if identity else terminal.base_title
+            if self.tabs.tabText(index) != title: self.tabs.setTabText(index, title)
+            self.tabs.setTabToolTip(index, (f'{identity[0]} · PID {identity[1]}\n' if identity else '') + item.directory)
         view = self.tabs.currentWidget()
         if view in self.sessions:
             session, _ = self.sessions[view]
@@ -238,6 +246,13 @@ class TerminalWorkspace(QWidget):
         if not self.sessions:
             self.tabs.addTab(self.empty, '终端工作区'); self.tabs.tabBar().hide()
             self.status.setText('Ctrl+C 中断命令 · Ctrl+Shift+C / V 复制粘贴')
+
+    def active_sessions(self):
+        sessions = [session for session, _ in self.sessions.values()]
+        # A newly spawned shell can still be queued for attachment to its tab.
+        with self.pending.mutex:
+            sessions += [session for session, _, error in self.pending.queue if session and not error]
+        return [session for session in sessions if getattr(session, 'has_active_jobs', lambda:False)()]
 
     def shutdown(self):
         self.closing = True

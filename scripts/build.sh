@@ -25,6 +25,7 @@ iconutil -c icns assets/LocalDeck.iconset -o assets/LocalDeck.icns
 cp assets/LocalDeck.icns "$APP/Contents/Resources/LocalDeck.icns"
 cp -f licenses/SwiftTerm-LICENSE.txt "$APP/Contents/Resources/SwiftTerm-LICENSE.txt"
 cp backend/performance.py "$APP/Contents/Resources/performance.py"
+cp backend/updates.py "$APP/Contents/Resources/updates.py"
 cp backend/server.py "$APP/Contents/Resources/server.py"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -34,8 +35,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>dev.localdeck.mac</string>
 <key>CFBundleIconFile</key><string>LocalDeck</string>
 <key>CFBundleName</key><string>LocalDeck</string>
-<key>CFBundleVersion</key><string>6</string>
-<key>CFBundleShortVersionString</key><string>0.5.0</string>
+<key>CFBundleVersion</key><string>7</string>
+<key>CFBundleShortVersionString</key><string>0.6.0</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

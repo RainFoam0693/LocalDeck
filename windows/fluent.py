@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPalette
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
 
-VERSION = '0.5.1'
+VERSION = '0.6.0'
 BG = '#202020'
 PANEL = '#2b2b2b'
 TEXT = '#f5f5f5'

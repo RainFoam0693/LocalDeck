@@ -6,10 +6,14 @@ import Darwin
 @MainActor final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProcessTerminalViewDelegate {
     let id = UUID()
     @Published var title: String
+    let number: Int
+    @Published var identity: TerminalIdentity?
+    var displayTitle: String { identity.map { "\($0.name) · \(number)" } ?? title }
     @Published var running = true
     @Published var directory: String
     let view: LocalProcessTerminalView
     init(number: Int, directory: String) {
+        self.number = number
         self.title = "终端 \(number)"
         self.directory = directory
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 520))
@@ -26,7 +30,7 @@ import Darwin
     }
     nonisolated func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
     nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        if !title.isEmpty { Task { @MainActor [weak self] in self?.title = String(title.prefix(80)) } }
+        // Process identity is refreshed independently; shell OSC titles can remain stale after exit.
     }
     nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
         if let directory { Task { @MainActor [weak self] in self?.directory = URL(string: directory)?.path ?? directory } }
@@ -44,6 +48,9 @@ import Darwin
         }.value
         if let result { directory = result }
         return URL(fileURLWithPath: directory, isDirectory: true)
+    }
+    var hasActiveJobs: Bool {
+        running && TerminalActivity.hasJobs(shellPID: view.process.shellPid, terminalFD: view.process.childfd)
     }
     func close() {
         guard running else { return }
@@ -63,9 +70,25 @@ import Darwin
     @Published var sessions: [TerminalSession] = []
     @Published var selected: UUID?
     let files = TerminalFileBrowser()
+    private var identityTimer: Timer?
+    private var scanningIdentity = false
+    init() {
+        identityTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.refreshIdentities() }
+        }
+    }
+    func refreshIdentities() async {
+        guard !scanningIdentity else { return }
+        scanningIdentity = true
+        defer { scanningIdentity = false }
+        let pids = sessions.filter { $0.running }.map { $0.view.process.shellPid }
+        let identities = await Task.detached(priority: .utility) { TerminalIdentity.scan(shells: pids) }.value
+        for session in sessions { session.identity = session.running ? identities[session.view.process.shellPid] : nil }
+    }
     @Published var showFiles = UserDefaults.standard.object(forKey: "terminalFilesVisible") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showFiles, forKey: "terminalFilesVisible") }
     }
+    var activeSessions: [TerminalSession] { sessions.filter { $0.hasActiveJobs } }
     var selectedSession: TerminalSession? { sessions.first { $0.id == selected } }
     func changeDirectory(_ url: URL) throws {
         var isDirectory: ObjCBool = false
@@ -177,7 +200,7 @@ struct TerminalTab: View {
     let close: () -> Void
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: select) { HStack { Circle().fill(session.running ? Color.mint : .gray).frame(width: 7, height: 7); Text(session.title).lineLimit(1) } }.buttonStyle(.plain)
+            Button(action: select) { HStack { Circle().fill(session.running ? Color.mint : .gray).frame(width: 7, height: 7); Text(session.displayTitle).lineLimit(1) } }.buttonStyle(.plain).help(session.identity.map { "\($0.name) · PID \($0.pid)\n\(session.directory)" } ?? session.directory)
             Button(action: close) { Image(systemName: "xmark").font(.caption) }.buttonStyle(.plain).help("关闭会话")
         }.padding(.horizontal, 14).padding(.vertical, 10).background(selected ? Deck.accent.opacity(0.18) : Deck.panel, in: RoundedRectangle(cornerRadius: 8))
     }

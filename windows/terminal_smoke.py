@@ -21,6 +21,7 @@ def run(app):
     try:
         for name in ('ONE', 'TWO'):
             session = TerminalSession(str(Path.home())); sessions.append(session); workspace.attach(session)
+            pump(lambda:session.activity.seen_prompt and not session.has_active_jobs())
             session.write('set "LOCALDECK_TAB='+name+'"\r'); session.write('echo %LOCALDECK_TAB%_READY\r')
             pump(lambda:name+'_READY' in session.text())
         assert 'ONE_READY' not in sessions[1].text() and 'TWO_READY' not in sessions[0].text()
@@ -31,8 +32,14 @@ def run(app):
         pump(lambda:'TWO_WIDGET' in sessions[1].text())
         powershell = TerminalSession(str(Path.home()), shell='powershell'); sessions.append(powershell)
         workspace.attach(powershell, shell='powershell')
+        pump(lambda:powershell.activity.seen_prompt and not powershell.has_active_jobs(), timeout=30)
         powershell.write("Write-Output ('LOCALDECK_PS_' + (6*7))\r")
         pump(lambda:'LOCALDECK_PS_42' in powershell.text(), timeout=30)
+        pump(lambda:not powershell.has_active_jobs())
+        powershell.write('Start-Sleep -Seconds 30\r')
+        pump(lambda:powershell.has_active_jobs())
+        powershell.write('\x03')
+        pump(lambda:not powershell.has_active_jobs())
         app.select_page(2); QApplication.processEvents()
         for session in sessions: session.write('ping -n 3 127.0.0.1 >nul & echo %LOCALDECK_TAB%_BACKGROUND\r')
         app.select_page(0)
@@ -56,7 +63,7 @@ def run(app):
         assert not psutil.pid_exists(third.process.pid), 'Closing tab survived app exit'
         assert not psutil.pid_exists(powershell.process.pid), 'PowerShell survived app exit'
         assert not app.errors, app.errors
-        return {'ok':True, 'tabs':2, 'pageSwitch':True, 'resize':True, 'ctrlC':True, 'closeIsolation':True, 'exitCleanup':True, 'ui':'Qt', 'powerShell':True, 'keyboardInput':True, 'themeContinuity':True}
+        return {'ok':True, 'tabs':2, 'pageSwitch':True, 'resize':True, 'ctrlC':True, 'closeIsolation':True, 'exitCleanup':True, 'ui':'Qt', 'powerShell':True, 'keyboardInput':True, 'themeContinuity':True, 'idleShellDetection':True, 'powerShellBuiltinDetection':True}
     finally:
         for session in sessions:
             if not session.closed: session.close()

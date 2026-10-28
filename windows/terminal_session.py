@@ -5,6 +5,8 @@ import threading
 import pyte
 from winpty import PtyProcess
 from backend.windows_platform import stop_tree
+from windows.terminal_activity import PromptActivity, has_child_jobs
+from windows.terminal_identity import task_identity
 
 
 class ReplyScreen(pyte.HistoryScreen):
@@ -23,13 +25,23 @@ class TerminalSession:
         self.running = True
         self.version = 0
         self.closed = False
+        self.identity = None
+        self.identity_stop = threading.Event()
+        self.activity = PromptActivity()
         self.screen = ReplyScreen(100, 28, history=1500)
         self.stream = pyte.Stream(self.screen)
-        args = ['powershell.exe', '-NoLogo'] if shell == 'powershell' else [os.environ.get('COMSPEC', 'cmd.exe'), '/d']
-        self.process = PtyProcess.spawn(args, cwd=directory, dimensions=(28, 100), env=dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor'))
+        args, environment = self.activity.shell_options(shell, dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor'))
+        self.process = PtyProcess.spawn(args, cwd=directory, dimensions=(28, 100), env=environment)
         self.screen.reply = self.write
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
+        threading.Thread(target=self._identify, daemon=True).start()
+
+    def _identify(self):
+        while not self.closed and self.running:
+            identity = task_identity(self.process.pid)
+            with self.lock: self.identity = identity if self.running and not self.closed else None
+            if self.identity_stop.wait(1): break
 
     def _read(self):
         try:
@@ -37,6 +49,7 @@ class TerminalSession:
                 output = self.process.read(32768)
                 if output:
                     with self.lock:
+                        self.activity.output(output)
                         self.stream.feed(output)
                         self.version += 1
         except (EOFError, OSError): pass
@@ -55,9 +68,17 @@ class TerminalSession:
                 return self.directory
         return None
 
+    def has_active_jobs(self):
+        if self.closed or not self.running: return False
+        with self.lock:
+            executing = self.activity.executing
+        return executing or has_child_jobs(self.process.pid)
+
     def write(self, text):
         if not self.closed and self.running:
-            try: self.process.write(text)
+            try:
+                with self.lock: self.activity.input(text)
+                self.process.write(text)
             except (EOFError, OSError): self.running = False
 
     def resize(self, rows, columns):
@@ -89,6 +110,7 @@ class TerminalSession:
         with self.close_lock:
             if self.closed: return
             self.closed = True
+            self.identity_stop.set()
             try: stop_tree(self.process.pid)
             finally:
                 self.running = False
