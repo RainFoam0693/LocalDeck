@@ -109,7 +109,9 @@ class App(QMainWindow):
         self.update_action.setEnabled(not updater.busy)
 
     def settings_dialog(self):
-        dialog = QDialog(self); dialog.setWindowTitle('设置'); dialog.resize(620, 760)
+        dialog = QDialog(self); dialog.setWindowTitle('设置')
+        available = self.screen().availableGeometry()
+        dialog.resize(min(620, max(320, available.width()-40)), min(760, max(400, available.height()-60)))
         outer = QVBoxLayout(dialog)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.NoFrame); scroll.setStyleSheet('QScrollArea { background: transparent; border: none; }')

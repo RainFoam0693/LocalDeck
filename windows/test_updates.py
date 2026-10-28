@@ -17,6 +17,8 @@ from windows.updates import AppUpdater
 from backend import updates
 
 qt = QApplication([]); setup_theme(qt)
+output = Path(os.environ.get('LOCALDECK_UPDATE_UI_OUTPUT', str(Path(tempfile.gettempdir())/'localdeck-update-preview')))
+output.mkdir(parents=True, exist_ok=True)
 release = {'version': '0.7.0', 'name': 'LocalDeck-0.7.0-Windows-x64.exe',
            'url': updates.RELEASES_URL+'/download/v0.7.0/LocalDeck-0.7.0-Windows-x64.exe',
            'page': updates.RELEASES_URL+'/tag/v0.7.0', 'notes': '新增退出确认、进程名称识别和应用内更新。',
@@ -63,18 +65,19 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, LOCALDEC
     # The UI stays usable and the settings content scrolls on smaller displays.
     app = App(preview=True); app.updater.release = release; app.updater.message = '发现新版本 0.7.0'; app.updater.changed.emit()
     app.show(); qt.processEvents(); assert app.update_banner.isVisible()
-    app.grab().save('/tmp/localdeck-update-windows.png')
+    app.grab().save(str(output/'update-banner.png'))
     failures = []
     def inspect_settings():
         dialog = qt.activeModalWidget()
         try:
             assert isinstance(dialog, QDialog)
-            assert dialog.height() <= qt.primaryScreen().availableGeometry().height()
+            assert dialog.height() <= qt.primaryScreen().availableGeometry().height(), f'Settings height {dialog.height()} exceeds screen {qt.primaryScreen().availableGeometry().height()}'
             from PySide6.QtWidgets import QCheckBox, QScrollArea
             assert any('每周一、三、五' in item.text() for item in dialog.findChildren(QCheckBox))
-            assert dialog.findChild(QScrollArea).verticalScrollBar().maximum() > 0
-            dialog.grab().save('/tmp/localdeck-update-settings-windows.png')
-        except Exception as error: failures.append(error)
+            assert dialog.findChild(QScrollArea).verticalScrollBar().maximum() > 0, 'Settings content cannot scroll'
+            dialog.grab().save(str(output/'update-settings.png'))
+        except Exception as error:
+            dialog.grab().save(str(output/'update-settings-failure.png')); failures.append(error)
         finally: dialog.reject()
     QTimer.singleShot(100, inspect_settings); app.settings_dialog()
     assert not failures, failures
