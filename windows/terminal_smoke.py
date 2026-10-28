@@ -15,7 +15,8 @@ def run(app):
             QApplication.processEvents()
             if check(): return
             time.sleep(.03)
-        raise AssertionError('Terminal smoke test timed out')
+        details = [(session.shell, session.activity.executing, session.running, session.text()[-1400:]) for session in sessions]
+        raise AssertionError('Terminal smoke test timed out: '+repr(details))
 
     workspace = app.terminals; sessions = []
     try:
@@ -36,8 +37,10 @@ def run(app):
         powershell.write("Write-Output ('LOCALDECK_PS_' + (6*7))\r")
         pump(lambda:'LOCALDECK_PS_42' in powershell.text(), timeout=30)
         pump(lambda:not powershell.has_active_jobs())
-        powershell.write('Start-Sleep -Seconds 30\r')
-        pump(lambda:powershell.has_active_jobs())
+        powershell.write("Write-Output ('LOCALDECK_PS_' + 'SLEEP_STARTED'); Start-Sleep -Seconds 30\r")
+        pump(lambda:'LOCALDECK_PS_SLEEP_STARTED' in powershell.text())
+        QTest.qWait(250)
+        assert powershell.has_active_jobs(), 'PowerShell builtin task was not detected'
         powershell.write('\x03')
         pump(lambda:not powershell.has_active_jobs())
         app.select_page(2); QApplication.processEvents()
