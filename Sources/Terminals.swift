@@ -8,13 +8,15 @@ import Darwin
     @Published var title: String
     let number: Int
     @Published var identity: TerminalIdentity?
-    var displayTitle: String { identity.map { "\($0.name) · \(number)" } ?? title }
+    var displayTitle: String { if isSSH { return title }; return identity.map { "\($0.name) · \(number)" } ?? title }
+    let isSSH: Bool
     @Published var running = true
     @Published var directory: String
     let view: LocalProcessTerminalView
-    init(number: Int, directory: String) {
+    init(number: Int, directory: String, ssh: SSHProfile? = nil) {
+        self.isSSH = ssh != nil
         self.number = number
-        self.title = "终端 \(number)"
+        self.title = ssh.map { "\($0.name) · SSH" } ?? "终端 \(number)"
         self.directory = directory
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 520))
         super.init()
@@ -26,7 +28,7 @@ import Darwin
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
-        view.startProcess(executable: "/bin/zsh", args: ["-l"], environment: env.map { "\($0.key)=\($0.value)" }, currentDirectory: directory)
+        view.startProcess(executable: ssh == nil ? "/bin/zsh" : "/usr/bin/ssh", args: ssh?.arguments ?? ["-l"], environment: env.map { "\($0.key)=\($0.value)" }, currentDirectory: directory)
     }
     nonisolated func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
     nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
@@ -50,7 +52,7 @@ import Darwin
         return URL(fileURLWithPath: directory, isDirectory: true)
     }
     var hasActiveJobs: Bool {
-        running && TerminalActivity.hasJobs(shellPID: view.process.shellPid, terminalFD: view.process.childfd)
+        running && (isSSH || TerminalActivity.hasJobs(shellPID: view.process.shellPid, terminalFD: view.process.childfd))
     }
     func close() {
         guard running else { return }
@@ -95,12 +97,17 @@ import Darwin
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { throw TerminalFileError.invalidDirectory }
         let command = try TerminalFileOperations.cdCommand(url.path)
         guard let session = selectedSession, session.running else { add(directory: url.path); return }
+        guard !session.isSSH else { throw TerminalFileError.busyTerminal }
         let foreground = tcgetpgrp(session.view.process.childfd)
         guard foreground > 0, foreground == getpgid(session.view.process.shellPid) else { throw TerminalFileError.busyTerminal }
         session.view.send(txt: "\u{15}" + command)
         session.view.window?.makeFirstResponder(session.view)
     }
     private var nextNumber = 1
+    func connect(_ profile: SSHProfile) {
+        let session = TerminalSession(number: nextNumber, directory: NSHomeDirectory(), ssh: profile)
+        nextNumber += 1; sessions.append(session); selected = session.id
+    }
     func add(directory: String = NSHomeDirectory()) {
         let session = TerminalSession(number: nextNumber, directory: directory)
         nextNumber += 1
@@ -162,7 +169,7 @@ struct TerminalWorkspaceView: View {
                 }
             }.frame(height: 42)
             HSplitView {
-                if workspace.showFiles {
+                if workspace.showFiles && workspace.selectedSession?.isSSH != true {
                     TerminalFilesPane(browser: workspace.files, cd: { try workspace.changeDirectory($0) }, newTerminal: { workspace.add(directory: $0.path) }, terminalDirectory: { await workspace.selectedSession?.currentDirectory() })
                         .frame(minWidth: 240, idealWidth: 280, maxWidth: 380)
                 }

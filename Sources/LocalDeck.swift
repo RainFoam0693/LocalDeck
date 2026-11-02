@@ -111,7 +111,9 @@ struct ContentView: View {
             workspaceBar
             UpdateBanner(updater: store.updater)
             VStack(spacing: 0) {
-                if section == "terminals" {
+                if section == "ssh" {
+                    SSHServersView { profile in store.terminals.connect(profile); section = "terminals" }
+                } else if section == "terminals" {
                     TerminalWorkspaceView(workspace: store.terminals)
                 } else {
                     VStack(alignment: .leading, spacing: 22) {
@@ -148,7 +150,7 @@ struct ContentView: View {
             Spacer(minLength: 0)
             WorkspaceNavigation(selection: $section, terminals: store.terminals,
                                 listenerCount: store.state.listeners.count, serviceCount: store.state.services.count)
-                .frame(width: 480, height: 44)
+                .frame(minWidth: 480, idealWidth: 620, maxWidth: 660, minHeight: 44)
             Spacer(minLength: 0)
             AppearanceControl()
             Button { showingSettings = true } label: { Image(systemName: "gearshape").font(.system(size: 17, weight: .medium)).frame(width: 22, height: 22) }

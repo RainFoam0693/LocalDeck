@@ -72,13 +72,14 @@ class App(QMainWindow):
         brand = QHBoxLayout(); logo = label('◈'); logo.setStyleSheet('color: #76b9ed; font-size: 25px;'); brand.addWidget(logo); brand.addWidget(label('LocalDeck', 'brand')); brand.addStretch()
         nav.addLayout(brand); nav.addSpacing(26); nav.addWidget(label('工作空间', 'muted')); nav.addSpacing(6)
         self.nav_buttons = []
-        for index, title in enumerate(['服务概览', '启动项', '终端工作区']):
+        for index, title in enumerate(['服务概览', '启动项', '终端工作区', 'SSH 服务器']):
             button = self.button(title, lambda i=index:self.select_page(i), 'nav'); button.setCheckable(True)
             button.setAccessibleName(title); nav.addWidget(button); self.nav_buttons.append(button)
         nav.addStretch(); self.appearance_capsule = AppearanceCapsule(self.appearance); nav.addWidget(self.appearance_capsule); nav.addSpacing(14); nav.addWidget(label('●  此 Windows PC', 'muted')); nav.addSpacing(8)
         nav.addWidget(label('LocalDeck '+VERSION, 'muted')); layout.addWidget(sidebar)
         content = QWidget(); content_layout = QVBoxLayout(content); content_layout.setContentsMargins(10, 12, 0, 0); content_layout.setSpacing(18)
         top = QHBoxLayout(); self.title_label = label('服务概览', 'heading'); top.addWidget(self.title_label); top.addStretch()
+        top.addWidget(self.button('SSH 服务器', lambda:self.select_page(3)))
         self.settings_button = self.button('', self.settings_dialog)
         self.settings_button.setIcon(appearance_icon('settings', themed('#b0b0b0')))
         self.settings_button.setFixedSize(38, 38)
@@ -98,6 +99,8 @@ class App(QMainWindow):
         content_layout.addLayout(metrics)
         self.tabs = QStackedWidget(); content_layout.addWidget(self.tabs, 1)
         self.build_live(); self.build_managed(); self.terminals = TerminalWorkspace(); self.tabs.addWidget(self.terminals)
+        from windows.ssh import SSHServers
+        self.ssh_servers = SSHServers(self.connect_ssh); self.tabs.addWidget(self.ssh_servers)
         self.status = label('正在连接本机服务…', 'muted'); content_layout.addWidget(self.status)
         layout.addWidget(content, 1); self.select_page(0)
 
@@ -204,8 +207,11 @@ class App(QMainWindow):
         self.log = QPlainTextEdit(); self.log.setReadOnly(True); self.log.setPlaceholderText('选择一个启动项，查看运行日志。'); self.log.setLineWrapMode(QPlainTextEdit.NoWrap); self.log.setStyleSheet('font-family: "Cascadia Mono", "Consolas", "Menlo", monospace; font-size: 13px;'); right_layout.addWidget(self.log)
         split.addWidget(right); split.setSizes([380, 600]); layout.addWidget(split, 1); self.tabs.addWidget(page)
 
+    def connect_ssh(self, profile):
+        self.terminals.add(ssh=profile); self.select_page(2)
+
     def select_page(self, index):
-        self.tabs.setCurrentIndex(index); self.title_label.setText(['服务概览', '启动项', '终端工作区'][index])
+        self.tabs.setCurrentIndex(index); self.title_label.setText(['服务概览', '启动项', '终端工作区', 'SSH 服务器'][index])
         for i, button in enumerate(self.nav_buttons): button.setChecked(i == index)
 
     def toggle_sort(self):

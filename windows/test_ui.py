@@ -16,7 +16,7 @@ app.search.clear(); app.toggle_sort(); assert app.selected_listener()['name'] ==
 output = Path(os.environ.get('LOCALDECK_UI_OUTPUT', 'dist/windows-preview')); output.mkdir(parents=True, exist_ok=True)
 for width, height in [(1320, 860), (1050, 700)]:
     app.resize(width, height); qt.processEvents()
-    for index, page in enumerate(['services', 'tasks', 'terminals']):
+    for index, page in enumerate(['services', 'tasks', 'terminals', 'ssh']):
         app.select_page(index); qt.processEvents()
         assert app.tabs.currentIndex() == index
         assert app.centralWidget().width() >= 1000
@@ -27,7 +27,7 @@ for mode in ['light', 'dark', 'system']:
     app.appearance.set_mode(mode); QTest.qWait(220); qt.processEvents()
     assert sum(button.isChecked() for button in app.appearance_capsule.buttons) == 1
     assert app.appearance_capsule.buttons[['light','dark','system'].index(mode)].isChecked()
-    for index, page in enumerate(['services','tasks','terminals']):
+    for index, page in enumerate(['services','tasks','terminals','ssh']):
         app.select_page(index); qt.processEvents(); app.grab().save(str(output/f'{page}-{mode}.png'))
 # A system change must update only the follow-system mode, without changing OS settings.
 app.appearance.system_dark = lambda:False; app.appearance.set_mode('system'); assert not app.appearance.dark
@@ -61,4 +61,4 @@ for mode in ['light', 'dark']:
     app.grab().save(str(output/f'terminal-running-{mode}.png'))
 app.terminals.sessions.clear()
 app.closed = True; app.executor.shutdown(); app.close()
-print('Qt UI: search, selection, CPU sort, empty states, 3 pages 2 sizes, 3 themes, system changes and persistence passed')
+print('Qt UI: search, selection, CPU sort, empty states, 4 pages 2 sizes, 3 themes, system changes and persistence passed')

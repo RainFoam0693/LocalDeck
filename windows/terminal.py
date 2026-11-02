@@ -167,6 +167,8 @@ class TerminalWorkspace(QWidget):
         if view not in self.sessions or not self.sessions[view][0].running:
             self.add(directory=path, shell='powershell'); return
         session = self.sessions[view][0]
+        if getattr(session, 'is_ssh', False):
+            QMessageBox.information(self, '远程终端', '文件面板展示本机文件；请在远程终端内使用 cd 切换服务器目录。'); return
         try:
             if not os.path.isdir(path): raise ValueError('目录不存在。')
             command = cd_command(path, session.shell)
@@ -185,13 +187,13 @@ class TerminalWorkspace(QWidget):
         directory = QFileDialog.getExistingDirectory(self, '终端工作目录', os.path.expanduser('~'))
         if directory: self.add(directory=directory, shell='powershell')
 
-    def add(self, directory=None, shell='cmd'):
+    def add(self, directory=None, shell='cmd', ssh=None):
         if self.closing: return
         directory = directory or os.path.expanduser('~'); self.status.setText('正在创建终端…')
         def spawn():
             try:
                 from windows.terminal_session import TerminalSession
-                session = TerminalSession(directory, shell)
+                session = TerminalSession(directory, shell, ssh=ssh) if ssh else TerminalSession(directory, shell)
                 if self.closing: session.close()
                 else: self.pending.put((session, shell, None))
             except Exception as error: self.pending.put((None, shell, str(error)))
@@ -202,8 +204,8 @@ class TerminalWorkspace(QWidget):
         self.tabs.tabBar().show()
         view = TerminalView(session); self.sessions[view] = (session, view)
         view.terminal_number = self.next_number
-        view.base_title = f'{"PowerShell" if shell == "powershell" else "CMD"} {self.next_number}'
-        index = self.tabs.addTab(view, f'{"PowerShell" if shell == "powershell" else "CMD"} {self.next_number}'); self.next_number += 1
+        view.base_title = getattr(session, 'ssh_title', None) or f'{"PowerShell" if shell == "powershell" else "CMD"} {self.next_number}'
+        index = self.tabs.addTab(view, view.base_title); self.next_number += 1
         close = QToolButton(self.tabs.tabBar()); view.close_button = close; close.setAutoRaise(True); close.setAccessibleName('关闭终端'); close.setToolTip('关闭终端')
         close.setIcon(appearance_icon('close', themed('#b0b0b0'))); close.setFixedSize(24,24)
         close.setStyleSheet('QToolButton { background: transparent; border: none; border-radius: 4px; } QToolButton:hover { background: rgba(128,128,128,0.2); }')
@@ -227,7 +229,7 @@ class TerminalWorkspace(QWidget):
         for terminal, (item, _) in self.sessions.items():
             identity = getattr(item, 'identity', None) if item.running else None
             index = self.tabs.indexOf(terminal)
-            title = f'{identity[0]} · {terminal.terminal_number}' if identity else terminal.base_title
+            title = terminal.base_title if getattr(item, 'is_ssh', False) else (f'{identity[0]} · {terminal.terminal_number}' if identity else terminal.base_title)
             if self.tabs.tabText(index) != title: self.tabs.setTabText(index, title)
             self.tabs.setTabToolTip(index, (f'{identity[0]} · PID {identity[1]}\n' if identity else '') + item.directory)
         view = self.tabs.currentWidget()

@@ -78,7 +78,7 @@ Mac 顶栏右侧、Windows 侧栏底部提供三段小胶囊：太阳（浅色�
 
 0.5.0 重写 Windows 界面：统一深色控件、圆角面板、Windows UI 字体、高 DPI 缩放与轻量滚动条。保留系统原生标题栏及 Snap Layouts，通过公开 DWM API 请求深色标题栏、圆角和 Mica；Mica 需要 22H2 及以上，并服从系统设置。界面由 Qt 实现，并非 WinUI。macOS 界面与构建不受影响。
 
-最新安装包放在 [Releases](https://github.com/RainFoam0693/LocalDeck/releases)。Windows 选择 `LocalDeck-0.6.0-Windows-x64.exe`，双击运行；也可选择包含说明和第三方许可的 ZIP。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10，无需安装 Python 或 Qt。macOS Apple Silicon 选择 DMG 或 macOS ZIP。当前包未做 Apple 公证或 Windows Authenticode 签名。
+最新安装包放在 [Releases](https://github.com/RainFoam0693/LocalDeck/releases)。Windows 选择 `LocalDeck-0.7.0-Windows-x64.exe`，双击运行；也可选择包含说明和第三方许可的 ZIP。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10，无需安装 Python 或 Qt。macOS Apple Silicon 选择 DMG 或 macOS ZIP。当前包未做 Apple 公证或 Windows Authenticode 签名。
 
 功能包括 TCP 监听进程扫描、搜索、打开浏览器和目录、确认后停止进程、命令启动项、启停/重启和最近 100 KB 日志。Windows 命令通过 `cmd.exe /d /s /c` 执行；配置与日志在 `%LOCALAPPDATA%\LocalDeck`。受保护进程可能无法读取信息或停止，程序不会请求提权。Windows 停止操作会终止目标进程；托管任务会同时停止其子进程。使用 `start` 等脱离管理 shell 的任务可能继续运行。「应用内终端」支持独立的 CMD / PowerShell 会话。
 
@@ -91,7 +91,7 @@ python scripts/test_backend.py
 ./windows/build.ps1
 ```
 
-GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.6.0-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
+GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.7.0-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
 
 ## 后端 API
 
@@ -130,3 +130,9 @@ Windows 本机 API 始终直连 127.0.0.1，不使用系统代理；回归验证
 公开仓库无需配置。私有仓库可在设置中保存 GitHub fine-grained 访问令牌，限定 LocalDeck 仓库的 **Contents → Read-only** 权限；macOS 使用系统钥匙串，Windows 使用凭据管理器，令牌不会写入普通配置文件或打包进软件。无法授权时仍可通过“GitHub 发行页”登录下载。
 
 发布时，版本标签使用 `vX.Y.Z`、`macos-vX.Y.Z` 或 `windows-vX.Y.Z`；安装包名称为 `LocalDeck-X.Y.Z-macOS-arm64.dmg` 或 `LocalDeck-X.Y.Z-Windows-x64.exe`（其他架构相应替换）。校验使用 GitHub 资产的 `sha256` digest；旧资产需同时上传 `SHA256SUMS-macOS.txt` / `SHA256SUMS-Windows.txt`。未发布到 Releases 的 Actions 构建不会被当作正式更新。
+
+### SSH 服务器
+
+顶部的「SSH 服务器」可添加、编辑、删除和保存服务器名称、主机、端口、用户名及可选私钥路径。点击连接后，在终端工作区建立独立 SSH 标签；切换页面不会断开连接，退出应用前会提醒仍在运行的 SSH 会话。
+
+使用系统 OpenSSH 客户端，支持交互式密码、密钥口令与 SSH Agent，不在配置中保存密码或复制私钥。首次连接由 OpenSSH 提示核对主机指纹，后续沿用系统 known_hosts。Windows 需要安装「OpenSSH 客户端」可选功能。文件浏览器仍管理本机文件，不提供远程 SFTP。

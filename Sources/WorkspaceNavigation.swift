@@ -19,6 +19,7 @@ struct WorkspaceNavigation: View {
             Label("服务概览  \(listenerCount)", systemImage: "square.grid.2x2").tag("overview")
             Label("启动项  \(serviceCount)", systemImage: "play.rectangle").tag("managed")
             Label("终端工作区  \(terminals.sessions.count)", systemImage: "terminal").tag("terminals")
+            Label("SSH 服务器", systemImage: "server.rack").tag("ssh")
         }
         .labelsHidden()
         .labelStyle(.titleAndIcon)

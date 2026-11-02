@@ -16,7 +16,9 @@ class ReplyScreen(pyte.HistoryScreen):
 
 
 class TerminalSession:
-    def __init__(self, directory, shell='cmd'):
+    def __init__(self, directory, shell='cmd', ssh=None):
+        self.is_ssh = ssh is not None
+        self.ssh_title = (ssh['name'] + ' · SSH') if ssh else None
         self.directory = directory
         self.shell = shell
         self.lock = threading.RLock()
@@ -31,6 +33,12 @@ class TerminalSession:
         self.screen = ReplyScreen(100, 28, history=1500)
         self.stream = pyte.Stream(self.screen)
         args, environment = self.activity.shell_options(shell, dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor'))
+        if ssh:
+            import shutil
+            from windows.ssh import ssh_arguments
+            executable = shutil.which('ssh.exe')
+            if not executable: raise RuntimeError('未找到 OpenSSH 客户端，请在 Windows 设置 → 系统 → 可选功能中安装 OpenSSH 客户端。')
+            args = ssh_arguments(ssh); args[0] = executable
         self.process = PtyProcess.spawn(args, cwd=directory, dimensions=(28, 100), env=environment)
         self.screen.reply = self.write
         self.reader = threading.Thread(target=self._read, daemon=True)
@@ -70,6 +78,7 @@ class TerminalSession:
 
     def has_active_jobs(self):
         if self.closed or not self.running: return False
+        if self.is_ssh: return True
         with self.lock:
             executing = self.activity.executing
         return executing or has_child_jobs(self.process.pid)

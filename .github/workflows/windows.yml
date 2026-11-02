@@ -38,6 +38,8 @@ jobs:
       - name: Test file browser and terminal scrollback
         shell: pwsh
         run: |
+          python windows/test_ssh.py
+          if ($LASTEXITCODE -ne 0) { throw 'SSH profile tests failed' }
           python windows/test_exit_confirmation.py
           if ($LASTEXITCODE -ne 0) { throw 'Exit confirmation tests failed' }
           python windows/test_terminal_identity.py
@@ -103,8 +105,8 @@ jobs:
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-0.6.0-Windows-x64.exe
-            dist/LocalDeck-0.6.0-Windows-x64.zip
+            dist/LocalDeck-0.7.0-Windows-x64.exe
+            dist/LocalDeck-0.7.0-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -113,5 +115,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.6.0 · macOS 与 Windows · 终端任务与应用更新' --notes-file windows/RELEASE.md dist/LocalDeck-0.6.0-Windows-x64.exe dist/LocalDeck-0.6.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.7.0 · macOS 与 Windows · SSH 服务器与保存连接' --notes-file windows/RELEASE.md dist/LocalDeck-0.7.0-Windows-x64.exe dist/LocalDeck-0.7.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
