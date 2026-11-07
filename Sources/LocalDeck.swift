@@ -34,7 +34,7 @@ struct ServiceSnapshot: Codable { var services: [Service]; var listeners: [Liste
             guard let script = Bundle.main.path(forResource: "server", ofType: "py") else { throw NSError(domain: "缺少后端文件", code: 1) }
             let p = Process(); let pipe = Pipe()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            p.arguments = ["python3", "-u", script]
+            p.arguments = ["python3", "-B", "-u", script]
             p.standardOutput = pipe
             try p.run(); process = p
             let data = await Task.detached { () -> Data in

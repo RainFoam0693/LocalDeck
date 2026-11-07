@@ -29,7 +29,7 @@ private struct UpdateReply<T: Decodable>: Decodable {
     @Published var authorized = UserDefaults.standard.bool(forKey: "updatesAuthorized")
     @Published var lastChecked: String
     @Published var automatic: Bool { didSet { defaults.set(automatic, forKey: "updatesAutomatic") } }
-    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.7.1"
+    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.7.2"
     private let defaults = UserDefaults.standard
     private var timer: Timer?
     private var operation: Process?
@@ -109,7 +109,7 @@ private struct UpdateReply<T: Decodable>: Decodable {
         var authenticated = command
         authenticated["token"] = token
         let input = try JSONSerialization.data(withJSONObject: authenticated)
-        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/env"); process.arguments = ["python3", "-u", script]
+        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/env"); process.arguments = ["python3", "-B", "-u", script]
         let stdin = Pipe(), stdout = Pipe(); process.standardInput = stdin; process.standardOutput = stdout; process.standardError = FileHandle.nullDevice
         operation = process
         defer { operation = nil }
