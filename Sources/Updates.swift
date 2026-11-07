@@ -29,7 +29,7 @@ private struct UpdateReply<T: Decodable>: Decodable {
     @Published var authorized = UserDefaults.standard.bool(forKey: "updatesAuthorized")
     @Published var lastChecked: String
     @Published var automatic: Bool { didSet { defaults.set(automatic, forKey: "updatesAutomatic") } }
-    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.7.0"
+    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.7.1"
     private let defaults = UserDefaults.standard
     private var timer: Timer?
     private var operation: Process?

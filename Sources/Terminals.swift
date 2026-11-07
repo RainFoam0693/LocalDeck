@@ -18,7 +18,7 @@ import Darwin
         self.number = number
         self.title = ssh.map { "\($0.name) · SSH" } ?? "终端 \(number)"
         self.directory = directory
-        self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 520))
+        self.view = DeckTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 520))
         super.init()
         view.processDelegate = self
         view.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -206,9 +206,26 @@ struct TerminalTab: View {
     let select: () -> Void
     let close: () -> Void
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: select) { HStack { Circle().fill(session.running ? Color.mint : .gray).frame(width: 7, height: 7); Text(session.displayTitle).lineLimit(1) } }.buttonStyle(.plain).help(session.identity.map { "\($0.name) · PID \($0.pid)\n\(session.directory)" } ?? session.directory)
-            Button(action: close) { Image(systemName: "xmark").font(.caption) }.buttonStyle(.plain).help("关闭会话")
-        }.padding(.horizontal, 14).padding(.vertical, 10).background(selected ? Deck.accent.opacity(0.18) : Deck.panel, in: RoundedRectangle(cornerRadius: 8))
+        HStack(spacing: 0) {
+            Button(action: select) {
+                HStack(spacing: 8) {
+                    Circle().fill(session.running ? Color.mint : .gray).frame(width: 7, height: 7)
+                    Text(session.displayTitle).lineLimit(1)
+                }
+                .padding(.leading, 14).padding(.trailing, 8)
+                .frame(minHeight: 40)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(session.identity.map { "\($0.name) · PID \($0.pid)\n\(session.directory)" } ?? session.directory)
+            Button(action: close) {
+                Image(systemName: "xmark").font(.caption)
+                    .frame(width: 30, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("关闭会话")
+            .accessibilityLabel("关闭 " + session.displayTitle)
+        }
+        .background(selected ? Deck.accent.opacity(0.18) : Deck.panel, in: RoundedRectangle(cornerRadius: 8))
     }
 }

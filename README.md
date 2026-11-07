@@ -78,7 +78,7 @@ Mac 顶栏右侧、Windows 侧栏底部提供三段小胶囊：太阳（浅色�
 
 0.5.0 重写 Windows 界面：统一深色控件、圆角面板、Windows UI 字体、高 DPI 缩放与轻量滚动条。保留系统原生标题栏及 Snap Layouts，通过公开 DWM API 请求深色标题栏、圆角和 Mica；Mica 需要 22H2 及以上，并服从系统设置。界面由 Qt 实现，并非 WinUI。macOS 界面与构建不受影响。
 
-最新安装包放在 [Releases](https://github.com/RainFoam0693/LocalDeck/releases)。Windows 选择 `LocalDeck-0.7.0-Windows-x64.exe`，双击运行；也可选择包含说明和第三方许可的 ZIP。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10，无需安装 Python 或 Qt。macOS Apple Silicon 选择 DMG 或 macOS ZIP。当前包未做 Apple 公证或 Windows Authenticode 签名。
+最新安装包放在 [Releases](https://github.com/RainFoam0693/LocalDeck/releases)。Windows 选择 `LocalDeck-0.7.1-Windows-x64.exe`，双击运行；也可选择包含说明和第三方许可的 ZIP。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10，无需安装 Python 或 Qt。macOS Apple Silicon 选择 DMG 或 macOS ZIP。当前包未做 Apple 公证或 Windows Authenticode 签名。
 
 功能包括 TCP 监听进程扫描、搜索、打开浏览器和目录、确认后停止进程、命令启动项、启停/重启和最近 100 KB 日志。Windows 命令通过 `cmd.exe /d /s /c` 执行；配置与日志在 `%LOCALAPPDATA%\LocalDeck`。受保护进程可能无法读取信息或停止，程序不会请求提权。Windows 停止操作会终止目标进程；托管任务会同时停止其子进程。使用 `start` 等脱离管理 shell 的任务可能继续运行。「应用内终端」支持独立的 CMD / PowerShell 会话。
 
@@ -91,7 +91,7 @@ python scripts/test_backend.py
 ./windows/build.ps1
 ```
 
-GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.7.0-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
+GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.7.1-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
 
 ## 后端 API
 
@@ -136,3 +136,9 @@ Windows 本机 API 始终直连 127.0.0.1，不使用系统代理；回归验证
 顶部的「SSH 服务器」可添加、编辑、删除和保存服务器名称、主机、端口、用户名及可选私钥路径。点击连接后，在终端工作区建立独立 SSH 标签；切换页面不会断开连接，退出应用前会提醒仍在运行的 SSH 会话。
 
 使用系统 OpenSSH 客户端，支持交互式密码、密钥口令与 SSH Agent，不在配置中保存密码或复制私钥。首次连接由 OpenSSH 提示核对主机指纹，后续沿用系统 known_hosts。Windows 需要安装「OpenSSH 客户端」可选功能。文件浏览器仍管理本机文件，不提供远程 SFTP。
+
+### 终端交互改进（0.7.1）
+
+Mac 终端按小数像素绘制滚动位置，使用短缓动连接滚轮输入，保留触控板惯性；macOS 14+ 使用屏幕同步刷新，旧版系统采用计时器，实际帧率取决于设备和负载。开启系统“减少动态效果”时直接响应输入。终端标签背景空白处也可切换会话，右侧关闭按钮独立处理。应用声明简体中文本地化，原生菜单栏使用中文。
+
+Windows 累积细小滚动输入，避免每次小幅输入都跳过数行。两端拖选到上下边缘时自动滚动，新日志不会中断拖选。Windows 拖选期间暂缓界面刷新，松开后补齐输出并按日志行恢复选区。右键提供复制、粘贴、全选、取消选择、复制全部文本、回到最新输出；粘贴多行命令需用户确认。

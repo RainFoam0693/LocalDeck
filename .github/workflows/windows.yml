@@ -46,6 +46,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Terminal identity tests failed' }
           python windows/test_files.py
           if ($LASTEXITCODE -ne 0) { throw 'File browser tests failed' }
+          python windows/test_terminal_menu.py
+          if ($LASTEXITCODE -ne 0) { throw 'Terminal menu tests failed' }
           python windows/test_terminal_scroll.py
           if ($LASTEXITCODE -ne 0) { throw 'Terminal scrollback tests failed' }
       - name: Render Fluent UI at 100 and 150 percent
@@ -105,8 +107,8 @@ jobs:
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-0.7.0-Windows-x64.exe
-            dist/LocalDeck-0.7.0-Windows-x64.zip
+            dist/LocalDeck-0.7.1-Windows-x64.exe
+            dist/LocalDeck-0.7.1-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -115,5 +117,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.7.0 · macOS 与 Windows · SSH 服务器与保存连接' --notes-file windows/RELEASE.md dist/LocalDeck-0.7.0-Windows-x64.exe dist/LocalDeck-0.7.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 0.7.1 · macOS 与 Windows · 终端交互与中文菜单' --notes-file windows/RELEASE.md dist/LocalDeck-0.7.1-Windows-x64.exe dist/LocalDeck-0.7.1-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

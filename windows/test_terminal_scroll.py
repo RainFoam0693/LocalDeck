@@ -32,5 +32,38 @@ bar.setValue(bar.maximum()); feed(100, 10)
 assert bar.value() == bar.maximum(), 'returning to bottom did not restore following'
 bar.setValue(bar.maximum()-1); anchor = view.row_origins[bar.value()]; feed(110, 1)
 assert view.row_origins[bar.value()] is anchor, 'one line above bottom must also pause following'
+# A wheel notch is one row; high-resolution pixel input accumulates.
+from PySide6.QtCore import Qt, QPoint, QPointF
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtTest import QTest
+bar.setValue(bar.maximum()-20)
+def wheel(angle=0, pixels=0):
+    event = QWheelEvent(QPointF(100,100), QPointF(view.mapToGlobal(QPoint(100,100))),
+                        QPoint(0,pixels), QPoint(0,angle), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+    view.wheelEvent(event)
+initial = bar.value(); wheel(120); assert bar.value() == initial-1
+initial = bar.value()
+for _ in range(3): wheel(pixels=1)
+assert bar.value() == initial, 'small deltas jumped a row each'
+for _ in range(view.fontMetrics().lineSpacing()): wheel(pixels=1)
+assert bar.value() == initial-1, 'pixel deltas were not accumulated'
+wheel(-120); assert bar.value() == initial, 'direction reversal was delayed'
+# Hold a selection at either edge: the timer must move and extend it while stationary.
+viewport = view.viewport()
+QTest.mousePress(viewport, Qt.LeftButton, Qt.NoModifier, QPoint(80,100))
+QTest.mouseMove(viewport, QPoint(160,1))
+initial = bar.value(); QTest.qWait(160)
+assert bar.value() < initial, 'top-edge drag failed to scroll up'
+assert view.textCursor().hasSelection(), 'edge drag lost the selection'
+QTest.mouseMove(viewport, QPoint(160,viewport.height()-2))
+initial = bar.value(); QTest.qWait(160)
+assert bar.value() > initial, 'bottom-edge drag failed to scroll down'
+selected = view.textCursor().selectedText(); rendered = view.toPlainText()
+feed(120,3)
+assert view.toPlainText() == rendered and view.textCursor().selectedText() == selected, 'output interrupted drag selection'
+QTest.mouseRelease(viewport, Qt.LeftButton, Qt.NoModifier, QPoint(160,viewport.height()-2))
+assert not view.selection_timer.isActive()
+view.paint_screen()
+assert view.version == session.version, 'output failed to catch up after drag'
 view.close()
-print('Terminal scroll: live following, history reading, bounded history and resume passed')
+print('Terminal input: fine wheel, pixel deltas, edge drag, selection stability; scroll: live following, history reading, bounded history and resume passed')

@@ -2,7 +2,7 @@
 import os
 import queue
 import threading
-from PySide6.QtCore import Qt, QTimer, QSettings
+from PySide6.QtCore import Qt, QTimer, QSettings, QPoint
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QKeySequence
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QPlainTextEdit, QTabWidget, QTabBar, QToolButton, QPushButton, QFileDialog, QMessageBox, QMenu)
@@ -33,11 +33,76 @@ class TerminalView(QPlainTextEdit):
         self.setStyleSheet('QPlainTextEdit { font-family: "Cascadia Mono", "Consolas", "Menlo", monospace; font-size: 14px; padding: 14px; }')
         self.setAttribute(Qt.WA_InputMethodEnabled, True)
         self.setAccessibleName('交互终端')
+        self.wheel_remainder = 0.0
+        self.selecting = False
+        self.selection_pointer = QPoint()
+        self.selection_timer = QTimer(self)
+        self.selection_timer.setInterval(50)
+        self.selection_timer.timeout.connect(self.selection_scroll_tick)
+
+    def wheelEvent(self, event):
+        pixels = event.pixelDelta().y()
+        delta = -pixels / max(1, self.fontMetrics().lineSpacing()) if pixels else -event.angleDelta().y() / 120.0
+        if self.wheel_remainder * delta < 0: self.wheel_remainder = 0.0
+        self.wheel_remainder += delta
+        rows = int(self.wheel_remainder)
+        self.wheel_remainder -= rows
+        bar = self.verticalScrollBar()
+        bar.setValue(bar.value() + rows)
+        if self.selecting: self.extend_selection()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        if event.button() == Qt.LeftButton:
+            self.selecting = True
+            self.selection_pointer = event.position().toPoint()
+
+    def mouseMoveEvent(self, event):
+        if not self.selecting:
+            super().mouseMoveEvent(event); return
+        self.selection_pointer = event.position().toPoint()
+        self.extend_selection()
+        if self.selection_pointer.y() < 24 or self.selection_pointer.y() > self.viewport().height() - 24:
+            self.selection_timer.start()
+        else: self.selection_timer.stop()
+
+    def extend_selection(self):
+        point = QPoint(max(0, min(self.viewport().width()-1, self.selection_pointer.x())),
+                       max(0, min(self.viewport().height()-1, self.selection_pointer.y())))
+        cursor = self.textCursor()
+        cursor.setPosition(self.cursorForPosition(point).position(), QTextCursor.KeepAnchor)
+        bar = self.verticalScrollBar(); position = bar.value()
+        self.setTextCursor(cursor); bar.setValue(position)
+
+    def selection_scroll_tick(self):
+        if not self.selecting or not self.isVisible() or not QApplication.mouseButtons() & Qt.LeftButton:
+            self.selection_timer.stop(); return
+        y = self.selection_pointer.y(); height = self.viewport().height()
+        distance = y - 24 if y < 24 else (y - height + 24 if y > height - 24 else 0)
+        if not distance: self.selection_timer.stop(); return
+        rows = min(4, 1 + abs(distance) // max(1, self.fontMetrics().lineSpacing()))
+        bar = self.verticalScrollBar(); bar.setValue(bar.value() + (rows if distance > 0 else -rows))
+        self.extend_selection()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.LeftButton:
+            self.selecting = False; self.selection_timer.stop()
+
+    def focusOutEvent(self, event):
+        self.selecting = False; self.selection_timer.stop()
+        super().focusOutEvent(event)
+
+    def hideEvent(self, event):
+        self.selecting = False; self.selection_timer.stop()
+        super().hideEvent(event)
 
     def paste_terminal(self):
         text = QApplication.clipboard().text()
-        if ('\n' in text or '\r' in text) and QMessageBox.question(self, '粘贴多行命令', '内容包含换行，可能立即执行命令。继续粘贴？') != QMessageBox.Yes: return
-        self.session.write(text.replace('\r\n', '\r').replace('\n', '\r'))
+        if ('\n' in text or '\r' in text) and QMessageBox.question(self, '粘贴多行命令', '内容包含换行，可能立即执行命令。继续粘贴？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
+        if text and self.session.running:
+            self.session.write(text.replace('\r\n', '\r').replace('\n', '\r'))
 
     def keyPressEvent(self, event):
         ctrl = bool(event.modifiers() & Qt.ControlModifier)
@@ -62,11 +127,24 @@ class TerminalView(QPlainTextEdit):
         if event.commitString(): self.session.write(event.commitString())
         event.accept()
 
-    def contextMenuEvent(self, event):
+    def make_context_menu(self):
         menu = QMenu(self)
         copy = menu.addAction('复制  Ctrl+Shift+C'); copy.setEnabled(self.textCursor().hasSelection()); copy.triggered.connect(self.copy)
-        menu.addAction('粘贴  Ctrl+Shift+V', self.paste_terminal)
-        menu.exec(event.globalPos())
+        paste = menu.addAction('粘贴  Ctrl+Shift+V', self.paste_terminal)
+        paste.setEnabled(bool(QApplication.clipboard().text()) and self.session.running)
+        menu.addSeparator()
+        menu.addAction('全选', self.selectAll)
+        clear = menu.addAction('取消选择', self.clear_selection); clear.setEnabled(self.textCursor().hasSelection())
+        menu.addAction('复制全部文本', lambda:QApplication.clipboard().setText(self.toPlainText()))
+        menu.addSeparator()
+        menu.addAction('回到最新输出', lambda:self.verticalScrollBar().setValue(self.verticalScrollBar().maximum()))
+        return menu
+
+    def clear_selection(self):
+        cursor = self.textCursor(); cursor.clearSelection(); self.setTextCursor(cursor)
+
+    def contextMenuEvent(self, event):
+        self.make_context_menu().exec(event.globalPos())
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -76,6 +154,9 @@ class TerminalView(QPlainTextEdit):
         except (OSError, EOFError): pass
 
     def paint_screen(self):
+        # Keep Qt's drag anchor intact while asynchronous output arrives.
+        # The next refresh after release catches up with the session buffer.
+        if self.selecting: return self.session.running
         if hasattr(self.session, 'snapshot_for_view'):
             version, lines, cursor, running, columns, origins = self.session.snapshot_for_view()
         else:
@@ -87,8 +168,16 @@ class TerminalView(QPlainTextEdit):
         if not bottom and anchor is not None and origins:
             # Match the same history row even when the bounded history drops old rows.
             scroll = next((i for i, line in enumerate(origins) if line is anchor), 0)
+        selected = self.textCursor(); start, end = selected.anchor(), selected.position()
+        positions = {}
+        if selected.hasSelection() and origins and self.row_origins:
+            row_map = {id(line): index for index, line in enumerate(origins)}
+            for position in (start, end):
+                block = self.document().findBlock(position)
+                old_row = block.blockNumber()
+                origin = self.row_origins[old_row] if old_row < len(self.row_origins) else None
+                positions[position] = (row_map.get(id(origin), 0), position - block.position())
         self.row_origins = origins
-        selected = self.textCursor(); start, end = selected.selectionStart(), selected.selectionEnd()
         self.setUpdatesEnabled(False)
         try:
             doc = self.document(); doc.clear(); writer = QTextCursor(doc)
@@ -106,8 +195,13 @@ class TerminalView(QPlainTextEdit):
                     segment += cell.data if cell else ' '; previous = style
                 if segment: writer.insertText(segment, self.char_format(previous))
                 if row != len(lines)-1: writer.insertText('\n')
-            if end > start:
-                selected = QTextCursor(doc); selected.setPosition(min(start, doc.characterCount()-1)); selected.setPosition(min(end, doc.characterCount()-1), QTextCursor.KeepAnchor); self.setTextCursor(selected)
+            if end != start:
+                def restored(position):
+                    if position not in positions: return min(position, doc.characterCount()-1)
+                    row, column = positions[position]
+                    block = doc.findBlockByNumber(row)
+                    return block.position() + min(column, max(0, block.length()-1))
+                selected = QTextCursor(doc); selected.setPosition(restored(start)); selected.setPosition(restored(end), QTextCursor.KeepAnchor); self.setTextCursor(selected)
             scrollbar.setValue(scrollbar.maximum() if bottom else scroll)
         finally: self.setUpdatesEnabled(True)
         return running

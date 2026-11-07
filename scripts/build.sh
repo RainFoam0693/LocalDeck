@@ -27,6 +27,10 @@ cp -f licenses/SwiftTerm-LICENSE.txt "$APP/Contents/Resources/SwiftTerm-LICENSE.
 cp backend/performance.py "$APP/Contents/Resources/performance.py"
 cp backend/updates.py "$APP/Contents/Resources/updates.py"
 cp backend/server.py "$APP/Contents/Resources/server.py"
+mkdir -p "$APP/Contents/Resources/zh-Hans.lproj"
+cat > "$APP/Contents/Resources/zh-Hans.lproj/InfoPlist.strings" <<'STRINGS'
+"CFBundleDisplayName" = "LocalDeck";
+STRINGS
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -35,8 +39,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>dev.localdeck.mac</string>
 <key>CFBundleIconFile</key><string>LocalDeck</string>
 <key>CFBundleName</key><string>LocalDeck</string>
-<key>CFBundleVersion</key><string>8</string>
-<key>CFBundleShortVersionString</key><string>0.7.0</string>
+<key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
+<key>CFBundleLocalizations</key><array><string>zh-Hans</string></array>
+<key>CFBundleVersion</key><string>9</string>
+<key>CFBundleShortVersionString</key><string>0.7.1</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
