@@ -146,3 +146,7 @@ Windows 累积细小滚动输入，避免每次小幅输入都跳过数行。两
 ## 参与贡献
 
 欢迎通过 GitHub Issues 反馈问题或提出建议，也可以提交 Pull Request。反馈问题时请附上系统版本、LocalDeck 版本和复现步骤。
+
+## 许可证
+
+LocalDeck 源码采用 [MIT 许可证](LICENSE)。第三方依赖沿用各自的许可证，SwiftTerm 的许可见 [licenses/SwiftTerm-LICENSE.txt](licenses/SwiftTerm-LICENSE.txt)。
