@@ -19,10 +19,10 @@ from backend import updates
 qt = QApplication([]); setup_theme(qt)
 output = Path(os.environ.get('LOCALDECK_UPDATE_UI_OUTPUT', str(Path(tempfile.gettempdir())/'localdeck-update-preview')))
 output.mkdir(parents=True, exist_ok=True)
-release = {'version': '0.8.0', 'name': 'LocalDeck-0.8.0-Windows-x64.exe',
-           'url': updates.RELEASES_URL+'/download/v0.8.0/LocalDeck-0.8.0-Windows-x64.exe',
-           'page': updates.RELEASES_URL+'/tag/v0.8.0', 'notes': '新增退出确认、进程名称识别和应用内更新。',
-           'digest': 'sha256:'+hashlib.sha256(b'package').hexdigest(), 'size': 7, 'checksum': '', 'api': '', 'checksumAPI': ''}
+release = {'version': '1.1.0', 'name': 'LocalDeck-1.1.0-Windows-x64.exe',
+           'url': updates.RELEASES_URL+'/download/v1.1.0/LocalDeck-1.1.0-Windows-x64.exe',
+           'page': updates.RELEASES_URL+'/tag/v1.1.0', 'notes': '新增退出确认、进程名称识别和应用内更新。',
+           'digest': 'sha256:'+hashlib.sha256(b'package').hexdigest(), 'size': 7, 'checksum': ''}
 
 
 def pump(predicate):
@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, LOCALDEC
         updater.check(); updater.check()
         pump(lambda:not updater.busy)
         assert network.call_count == 1
-    assert updater.release['version'] == '0.8.0' and updater.path == ''
+    assert updater.release['version'] == '1.1.0' and updater.path == ''
     assert updater.last_checked != '尚无成功检查记录'
     cached = AppUpdater(automatic=False); assert cached.release == release
     # A default/cancel dialog must never initiate a download.
@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, LOCALDEC
     updater.set_enabled(False)
     assert not updater.enabled
     # The UI stays usable and the settings content scrolls on smaller displays.
-    app = App(preview=True); app.updater.release = release; app.updater.message = '发现新版本 0.8.0'; app.updater.changed.emit()
+    app = App(preview=True); app.updater.release = release; app.updater.message = '发现新版本 1.1.0'; app.updater.changed.emit()
     app.show(); qt.processEvents(); assert app.update_banner.isVisible()
     app.grab().save(str(output/'update-banner.png'))
     failures = []
@@ -84,15 +84,4 @@ with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, LOCALDEC
     app.close(); pump(lambda:app.closed)
     updater.shutdown(); cached.shutdown()
 
-# Real Credential Manager roundtrip runs on Windows CI under a disposable target.
-if sys.platform == 'win32':
-    import uuid
-    from windows import update_credentials as credentials
-    original = credentials.TARGET; credentials.TARGET += '/Test-'+uuid.uuid4().hex
-    try:
-        assert credentials.read_token() == ''
-        credentials.save_token('localdeck-test-credential'); assert credentials.read_token() == 'localdeck-test-credential'
-        credentials.save_token(''); assert credentials.read_token() == ''
-    finally:
-        credentials.save_token(''); credentials.TARGET = original
 print('Update UI: async checks, explicit consent, verified download state, cache, errors and scrollable settings passed')

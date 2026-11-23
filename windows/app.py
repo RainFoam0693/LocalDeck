@@ -14,7 +14,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
     QPlainTextEdit, QFileDialog, QMessageBox, QDialog, QFormLayout, QDialogButtonBox,
-    QScrollArea, QSizePolicy, QTabBar, QComboBox, QCheckBox)
+    QScrollArea, QSizePolicy, QTabBar, QComboBox, QCheckBox, QSystemTrayIcon, QMenu)
 from windows.fluent import themed, appearance_icon, VERSION, AppearanceManager, AppearanceCapsule, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
 from windows.terminal import TerminalWorkspace
 from windows.api_client import LocalAPIClient
@@ -25,6 +25,8 @@ class App(QMainWindow):
     def __init__(self, smoke=False, preview=False):
         super().__init__()
         self.smoke = smoke; self.preview = preview; self.closing = False; self.closed = False; self.confirming_quit = False
+        self.background_enabled = not preview and not smoke and '--terminal-smoke-test' not in sys.argv
+        self.quit_requested = False; self.install_requested = False; self.tray_icon = None
         self.data = {'services': [], 'listeners': []}; self.selected_log = None; self.sort_cpu = False
         self.results = queue.Queue(); self.pending = set(); self.errors = []
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
@@ -45,6 +47,7 @@ class App(QMainWindow):
         self.refresh_timer = QTimer(self); self.refresh_timer.timeout.connect(self.refresh); self.refresh_timer.start(4000)
         self.metric_timer = QTimer(self); self.metric_timer.timeout.connect(self.metrics_tick); self.metric_timer.start(2000)
         self.native_attributes = apply_native_window(self)
+        if self.background_enabled: self.setup_tray()
         if preview:
             from windows.preview import fixture
             self.render(fixture())
@@ -108,7 +111,7 @@ class App(QMainWindow):
         updater = self.updater
         self.update_banner.setVisible(bool(updater.release) and not updater.dismissed)
         self.update_label.setText(('LocalDeck '+updater.release['version']+' 可用 · ' if updater.release else '') + ('查看更新说明，由你决定何时下载。' if updater.message.startswith('发现新版本') else updater.message))
-        self.update_action.setText('打开下载位置' if updater.path else ('正在下载…' if updater.downloading else '查看更新'))
+        self.update_action.setText('安装并重启' if updater.path else ('正在下载…' if updater.downloading else '查看更新'))
         self.update_action.setEnabled(not updater.busy)
 
     def settings_dialog(self):
@@ -124,24 +127,15 @@ class App(QMainWindow):
         update_status = label(self.updater.message); update_status.setWordWrap(True); layout.addWidget(update_status)
         checked = label('上次成功检查：'+self.updater.last_checked, 'muted'); layout.addWidget(checked)
         auto = QCheckBox('每周一、三、五自动检查更新'); auto.setChecked(self.updater.enabled); auto.toggled.connect(self.updater.set_enabled); layout.addWidget(auto)
-        schedule_tip = label('应用运行时每天检查一次。只提示新版本，下载与替换由你确认。', 'muted'); schedule_tip.setWordWrap(True); layout.addWidget(schedule_tip)
+        schedule_tip = label('通过应用内检查公开发行版。发现更新后会提示你；下载和替换由你确认。', 'muted'); schedule_tip.setWordWrap(True); layout.addWidget(schedule_tip)
         update_buttons = QHBoxLayout()
         check = self.button('检查更新', self.updater.check); update_buttons.addWidget(check)
         install = self.button('下载更新', lambda:self.updater.open_download() if self.updater.path else self.updater.confirm_download(dialog), 'primary'); update_buttons.addWidget(install)
         update_buttons.addWidget(self.button('GitHub 发行页', self.updater.open_releases)); layout.addLayout(update_buttons)
         def update_settings():
-            auth_status.setText('已保存到 Windows 凭据管理器' if self.updater.authorized else '公开仓库无需授权；私有仓库需要只读令牌。')
             update_status.setText(self.updater.message); checked.setText('上次成功检查：'+self.updater.last_checked)
             check.setEnabled(not self.updater.busy); check.setText('正在检查…' if self.updater.busy and not self.updater.downloading else '检查更新')
-            install.setVisible(bool(self.updater.release)); install.setEnabled(not self.updater.busy); install.setText('打开下载位置' if self.updater.path else '下载更新')
-        layout.addWidget(label('私有仓库授权（可选）', 'section'))
-        auth_status = label('', 'muted'); layout.addWidget(auth_status)
-        token = QLineEdit(); token.setEchoMode(QLineEdit.Password); token.setPlaceholderText('私有仓库访问令牌（公开仓库可留空）'); layout.addWidget(token)
-        auth_actions = QHBoxLayout()
-        def save_auth(): self.updater.save_authorization(token.text()); token.clear()
-        auth_actions.addWidget(self.button('保存授权', save_auth)); auth_actions.addWidget(self.button('移除授权', lambda:self.updater.save_authorization('')))
-        auth_actions.addWidget(self.button('创建只读令牌', lambda:webbrowser.open('https://github.com/settings/personal-access-tokens/new'))); layout.addLayout(auth_actions)
-        auth_tip = label('选择 LocalDeck 仓库，仅开启 Contents → Read-only。授权保存在 Windows 凭据管理器。', 'muted'); auth_tip.setWordWrap(True); layout.addWidget(auth_tip)
+            install.setVisible(bool(self.updater.release)); install.setEnabled(not self.updater.busy); install.setText('安装并重启' if self.updater.path else '下载更新')
         self.updater.changed.connect(update_settings); update_settings()
         layout.addWidget(label('文件访问', 'section'))
         text = label('Windows 使用当前账户的文件访问权限，无需开启 macOS 的“完全磁盘访问”。受保护的系统目录和其他账户文件仍按系统权限管理。', 'muted')
@@ -235,7 +229,10 @@ class App(QMainWindow):
                 if key == 'closed':
                     self.closed = True
                     if error: self.errors.append(error)
-                    self.close(); return
+                    if self.tray_icon: self.tray_icon.hide()
+                    self.close()
+                    if self.quit_requested: QApplication.instance().quit()
+                    return
                 self.pending.discard(key)
                 if error:
                     self.errors.append(error); self.status.setText('操作失败：'+error)
@@ -362,16 +359,53 @@ class App(QMainWindow):
         dialog.exec()
         return dialog.clickedButton() is stop
 
+    def setup_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable(): return
+        self.tray_icon = QSystemTrayIcon(self.windowIcon(), self)
+        self.tray_icon.setToolTip('LocalDeck · 后台运行中')
+        menu = QMenu(self)
+        show = menu.addAction('打开 LocalDeck')
+        show.triggered.connect(lambda _checked=False: self.restore_from_tray())
+        menu.addSeparator()
+        quit_action = menu.addAction('退出 LocalDeck')
+        quit_action.triggered.connect(lambda _checked=False: self.quit_from_tray())
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.activated.connect(self.tray_activated)
+        self.tray_icon.show()
+
+    def restore_from_tray(self):
+        self.showNormal(); self.raise_(); self.activateWindow()
+
+    def tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick): self.restore_from_tray()
+
+    def quit_from_tray(self, install=False):
+        if self.closing or self.confirming_quit: return
+        self.install_requested = install
+        self.quit_requested = True
+        self.close()
+
     def closeEvent(self, event):
         if self.closed: event.accept(); return
+        if self.background_enabled and not self.quit_requested:
+            if self.tray_icon and self.tray_icon.isVisible():
+                self.hide(); event.ignore(); return
+            # With no tray, the close button remains the way to exit.
+            self.quit_requested = True
         event.ignore()
         if self.closing or self.confirming_quit: return
         active = self.terminals.active_sessions()
         if active:
+            if not self.isVisible(): self.restore_from_tray()
             self.confirming_quit = True
             try: confirmed = self.confirm_terminal_exit(active)
             finally: self.confirming_quit = False
-            if not confirmed: return
+            if not confirmed:
+                self.install_requested = self.quit_requested = False
+                return
+        if self.install_requested and not self.updater.launch_installer():
+            self.install_requested = self.quit_requested = False
+            return
         self.updater.shutdown()
         self.closing = True; self.terminals.closing = True; self.centralWidget().setEnabled(False); self.status.setText('正在停止托管任务与终端…'); self.refresh_timer.stop(); self.metric_timer.stop(); self.terminals.timer.stop()
         def shutdown():
@@ -389,7 +423,7 @@ class App(QMainWindow):
 
 def main():
     preview = '--preview' in sys.argv; smoke = '--smoke-test' in sys.argv; terminal_smoke = '--terminal-smoke-test' in sys.argv
-    qt = QApplication(sys.argv); qt.setApplicationName('LocalDeck'); setup_theme(qt)
+    qt = QApplication(sys.argv); qt.setApplicationName('LocalDeck'); qt.setQuitOnLastWindowClosed(preview or smoke or terminal_smoke); setup_theme(qt)
     if not preview and (sys.platform != 'win32' or sys.getwindowsversion().build < 22000):
         QMessageBox.critical(None, '需要 Windows 11', 'LocalDeck Windows 版需要 Windows 11 x64（内部版本 22000 或更新）。'); return 1
     app = App(smoke=smoke, preview=preview); app.show()

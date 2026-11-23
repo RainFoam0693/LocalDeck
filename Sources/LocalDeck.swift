@@ -301,30 +301,31 @@ struct ContentView: View {
             try await Task.sleep(nanoseconds: 300_000_000)
             guard first.hasActiveJobs, !second.hasActiveJobs else { throw NSError(domain: "Foreground job detection failed", code: 31) }
             guard let window = first.view.window else { throw NSError(domain: "Missing terminal window", code: 32) }
-            for closeWindow in [false, true] {
-                var cancelled = false
-                func cancelButton(in view: NSView) -> NSButton? {
-                    if let button = view as? NSButton, button.title == "取消" { return button }
-                    for child in view.subviews { if let button = cancelButton(in: child) { return button } }
-                    return nil
-                }
-                let cancelTimer = Timer(timeInterval: 0.05, repeats: true) { _ in
-                    MainActor.assumeIsolated {
-                        if !cancelled, let content = NSApp.modalWindow?.contentView, let button = cancelButton(in: content) {
-                            cancelled = true; button.performClick(nil)
-                        }
+            window.performClose(nil)
+            guard !window.isVisible, first.hasActiveJobs, kill(first.view.process.shellPid, 0) == 0 else { throw NSError(domain: "Closing the window stopped a background task", code: 33) }
+            NSApp.unhide(nil); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+            var cancelled = false
+            func cancelButton(in view: NSView) -> NSButton? {
+                if let button = view as? NSButton, button.title == "取消" { return button }
+                for child in view.subviews { if let button = cancelButton(in: child) { return button } }
+                return nil
+            }
+            let cancelTimer = Timer(timeInterval: 0.05, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    if !cancelled, let content = NSApp.modalWindow?.contentView, let button = cancelButton(in: content) {
+                        cancelled = true; button.performClick(nil)
                     }
                 }
-                RunLoop.main.add(cancelTimer, forMode: .common)
-                RunLoop.main.add(cancelTimer, forMode: .modalPanel)
-                if closeWindow { window.performClose(nil) } else { NSApp.terminate(nil) }
-                for _ in 0..<100 {
-                    if cancelled { break }
-                    try await Task.sleep(nanoseconds: 50_000_000)
-                }
-                cancelTimer.invalidate()
-                guard cancelled, window.isVisible, first.hasActiveJobs, kill(first.view.process.shellPid, 0) == 0 else { throw NSError(domain: "Cancelling quit lost window or task", code: 33) }
             }
+            RunLoop.main.add(cancelTimer, forMode: .common)
+            RunLoop.main.add(cancelTimer, forMode: .modalPanel)
+            NSApp.terminate(nil)
+            for _ in 0..<100 {
+                if cancelled { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            cancelTimer.invalidate()
+            guard cancelled, window.isVisible, first.hasActiveJobs, kill(first.view.process.shellPid, 0) == 0 else { throw NSError(domain: "Cancelling explicit quit lost window or task", code: 33) }
             do { try workspace.changeDirectory(fileRoot); throw NSError(domain: "Busy terminal accepted cd", code: 14) }
             catch TerminalFileError.busyTerminal { }
             first.view.send(txt: "\u{03}")
@@ -366,11 +367,38 @@ struct ContentView: View {
 }
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     var store: Store?
+    private var statusItem: NSStatusItem?
     private var confirmingQuit = false
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(systemSymbolName: "square.stack.3d.up.fill", accessibilityDescription: "LocalDeck")
+        item.button?.toolTip = "LocalDeck"
+        let menu = NSMenu(title: "LocalDeck")
+        let open = NSMenuItem(title: "显示 LocalDeck", action: #selector(showMainWindow), keyEquivalent: "")
+        open.target = self; menu.addItem(open)
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: "退出 LocalDeck", action: #selector(quitApplication), keyEquivalent: "")
+        quit.target = self; menu.addItem(quit)
+        item.menu = menu
+        statusItem = item
+    }
+    @objc private func showMainWindow() {
+        NSApp.unhide(nil)
+        if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    @objc private func quitApplication() { NSApp.terminate(nil) }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return true
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if confirmingQuit { return .terminateCancel }
         let active = store?.terminals.activeSessions ?? []
-        guard !active.isEmpty else { return .terminateNow }
+        guard !active.isEmpty else { return finishQuit() }
         confirmingQuit = true
         defer { confirmingQuit = false }
         let alert = NSAlert(); alert.alertStyle = .warning
@@ -380,9 +408,13 @@ struct ContentView: View {
         alert.addButton(withTitle: "取消")
         alert.addButton(withTitle: "结束任务并退出").hasDestructiveAction = true
         sender.activate(ignoringOtherApps: true)
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        return alert.runModal() == .alertSecondButtonReturn ? finishQuit() : .terminateCancel
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    private func finishQuit() -> NSApplication.TerminateReply {
+        guard let updater = store?.updater, updater.installRequested else { return .terminateNow }
+        return updater.launchInstaller() ? .terminateNow : .terminateCancel
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) { MainActor.assumeIsolated { store?.shutdown() } }
 }
 @main struct LocalDeckApp: App {

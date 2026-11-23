@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Security
 
 struct DeckUpdateRelease: Codable, Sendable {
     let version: String
@@ -10,8 +11,6 @@ struct DeckUpdateRelease: Codable, Sendable {
     let digest: String
     let size: Int
     let checksum: String
-    let api: String?
-    let checksumAPI: String?
 }
 private struct UpdateReply<T: Decodable>: Decodable {
     let ok: Bool
@@ -26,10 +25,9 @@ private struct UpdateReply<T: Decodable>: Decodable {
     @Published var downloaded: URL?
     @Published var dismissed = false
     @Published var message = "尚未检查更新"
-    @Published var authorized = UserDefaults.standard.bool(forKey: "updatesAuthorized")
     @Published var lastChecked: String
     @Published var automatic: Bool { didSet { defaults.set(automatic, forKey: "updatesAutomatic") } }
-    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.7.2"
+    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     private let defaults = UserDefaults.standard
     private var timer: Timer?
     private var operation: Process?
@@ -37,6 +35,8 @@ private struct UpdateReply<T: Decodable>: Decodable {
     init() {
         automatic = defaults.object(forKey: "updatesAutomatic") as? Bool ?? true
         lastChecked = defaults.string(forKey: "updatesLastChecked") ?? "尚无成功检查记录"
+        if defaults.bool(forKey: "updatesAuthorized") { Self.removeLegacyUpdateCredential() }
+        defaults.removeObject(forKey: "updatesAuthorized")
         if let data = defaults.data(forKey: "updatesAvailable"), let cached = try? JSONDecoder().decode(DeckUpdateRelease.self, from: data),
            cached.version.compare(currentVersion, options: .numeric) == .orderedDescending {
             release = cached; message = "发现新版本 " + cached.version
@@ -49,6 +49,12 @@ private struct UpdateReply<T: Decodable>: Decodable {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             self?.scheduledCheck()
         }
+    }
+    private static func removeLegacyUpdateCredential() {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: "dev.localdeck.github-updates",
+                                    kSecAttrAccount as String: "GitHub"]
+        SecItemDelete(query as CFDictionary)
     }
     static func dayKey(_ date: Date) -> String {
         let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
@@ -84,7 +90,7 @@ private struct UpdateReply<T: Decodable>: Decodable {
     func confirmDownload() {
         guard !busy, let release else { return }
         let alert = NSAlert(); alert.messageText = "LocalDeck " + release.version
-        alert.informativeText = "下载完成后打开安装包，退出当前版本，再替换应用。配置会保留，终端任务不会迁移。\n\n" + String(release.notes.prefix(1800))
+        alert.informativeText = "下载完成后，可选择安装并重启。配置会保留，终端任务不会迁移。\n\n" + String(release.notes.prefix(1800))
         alert.addButton(withTitle: "稍后"); alert.addButton(withTitle: "下载更新")
         if alert.runModal() == .alertSecondButtonReturn { download(release) }
     }
@@ -105,10 +111,7 @@ private struct UpdateReply<T: Decodable>: Decodable {
     private static func failure(_ message: String) -> NSError { NSError(domain: "LocalDeck.Update", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
     private func invoke<T: Decodable>(_ command: [String: Any]) async throws -> UpdateReply<T> {
         guard let script = Bundle.main.path(forResource: "updates", ofType: "py") else { throw Self.failure("缺少更新组件，请重新安装软件。") }
-        let token = authorized ? try await Task.detached(priority: .utility) { try DeckUpdateCredentials.read() }.value : ""
-        var authenticated = command
-        authenticated["token"] = token
-        let input = try JSONSerialization.data(withJSONObject: authenticated)
+        let input = try JSONSerialization.data(withJSONObject: command)
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/env"); process.arguments = ["python3", "-B", "-u", script]
         let stdin = Pipe(), stdout = Pipe(); process.standardInput = stdin; process.standardOutput = stdout; process.standardError = FileHandle.nullDevice
         operation = process
@@ -123,23 +126,30 @@ private struct UpdateReply<T: Decodable>: Decodable {
         guard response.ok else { throw Self.failure(response.error ?? "更新失败，请稍后重试。") }
         return response
     }
-    func saveAuthorization(_ value: String) {
-        guard !busy else { return }
-        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard token.isEmpty || (token.utf8.count <= 2560 && token.unicodeScalars.allSatisfy({ $0.value >= 33 && $0.value <= 126 })) else {
-            message = "访问令牌格式无效。"; return
-        }
-        busy = true
-        Task {
-            defer { busy = false }
-            do {
-                try await Task.detached(priority: .utility) { try DeckUpdateCredentials.save(token) }.value
-                authorized = !token.isEmpty; defaults.set(authorized, forKey: "updatesAuthorized")
-                message = authorized ? "授权已保存到钥匙串，可手动检查更新" : "私有仓库授权已移除"
-            } catch { message = error.localizedDescription }
-        }
+    var installRequested = false
+
+    func openDownload() {
+        guard downloaded != nil else { return }
+        installRequested = true
+        NSApp.terminate(nil)
+        installRequested = false
     }
-    func openDownload() { if let downloaded { NSWorkspace.shared.open(downloaded) } }
+
+    func launchInstaller() -> Bool {
+        guard let downloaded, let release,
+              let script = Bundle.main.url(forResource: "install-update", withExtension: "sh") else { return false }
+        let target = Bundle.main.bundleURL
+        guard target.pathExtension == "app", !target.path.contains("/AppTranslocation/"),
+              FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
+            message = "此位置无法自动安装。请在下载目录打开安装包，或将应用移到可写目录。"
+            return false
+        }
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = [script.path, String(ProcessInfo.processInfo.processIdentifier), downloaded.path, target.path, release.version]
+        do { try helper.run(); return true }
+        catch { message = "无法启动安装程序：" + error.localizedDescription; return false }
+    }
     func openReleases() { NSWorkspace.shared.open(Self.releasesURL) }
     func shutdown() { timer?.invalidate(); if operation?.isRunning == true { operation?.terminate() } }
 }
@@ -156,7 +166,7 @@ struct UpdateBanner: View {
                 }
                 Spacer()
                 if updater.busy { ProgressView().controlSize(.small) }
-                Button(updater.downloaded == nil ? "查看更新" : "打开安装包") {
+                Button(updater.downloaded == nil ? "查看更新" : "安装并重启") {
                     if updater.downloaded != nil { updater.openDownload() } else { updater.confirmDownload() }
                 }.buttonStyle(DeckButton(primary: true)).disabled(updater.busy)
                 Button("稍后") { updater.dismissed = true }.buttonStyle(DeckButton())

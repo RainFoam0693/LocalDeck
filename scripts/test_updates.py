@@ -8,8 +8,6 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from urllib.request import Request
-from urllib.error import HTTPError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend import updates
 
@@ -86,29 +84,6 @@ class UpdatesTests(unittest.TestCase):
             selected['name'] = 'LocalDeck-0.6.0-Windows-x64.exe'; selected['digest'] = ''
             with self.assertRaises(updates.UpdateError): updates.download(selected, folder)
             network.assert_not_called()
-
-    def test_private_asset_uses_api_and_redirect_drops_token(self):
-        source = release(); source['assets'][0]['url'] = 'https://api.github.com/repos/'+updates.REPOSITORY+'/releases/assets/123'
-        selected = updates.select_release([source], '0.5.1', 'windows', 'x64')
-        with tempfile.TemporaryDirectory() as folder, patch.object(updates, 'open_remote', return_value=io.BytesIO(b'package')) as network:
-            updates.download(selected, folder, token='test-only-token')
-            network.assert_called_once_with(selected['api'], 'test-only-token')
-        request = Request(selected['api'], headers={'Authorization': 'Bearer test-only-token'})
-        redirected = updates.GitHubRedirect().redirect_request(request, None, 302, 'Found', {}, 'https://release-assets.githubusercontent.com/package')
-        self.assertFalse(redirected.has_header('Authorization'))
-        with self.assertRaises(updates.UpdateError):
-            updates.GitHubRedirect().redirect_request(request, None, 302, 'Found', {}, 'https://example.com/package')
-        with self.assertRaises(updates.UpdateError):
-            updates.GitHubRedirect().redirect_request(request, None, 302, 'Found', {}, 'http://github.com/package')
-
-    def test_private_authorization_errors_are_explicit(self):
-        for code in (401, 403, 404, 429):
-            with patch.object(updates, 'build_opener') as opener:
-                opener.return_value.open.side_effect = HTTPError(updates.API_URL, code, 'unavailable', {}, None)
-                with self.assertRaises(updates.UpdateError) as context: updates.check('0.5.1', 'windows', 'x64', 'test-only-token')
-                self.assertNotIn('test-only-token', str(context.exception))
-                request = opener.return_value.open.call_args.args[0]
-                self.assertEqual(request.get_header('Authorization'), 'Bearer test-only-token')
 
     def test_proxy_html_is_error_not_latest(self):
         with patch.object(updates, 'open_remote', return_value=io.BytesIO(b'<html>proxy error</html>')):

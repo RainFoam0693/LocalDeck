@@ -37,19 +37,12 @@ def safe_url(value, asset=False):
             and not url.query and not url.fragment and not url.username)
 
 
-def safe_api_asset(value):
-    return bool(re.fullmatch(r'https://api\.github\.com/repos/' + REPOSITORY + r'/releases/assets/\d+', value))
-
-
 class GitHubRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, response, code, message, headers, new_url):
         target = urlsplit(new_url)
         if target.scheme != 'https' or target.hostname not in TRUSTED_HOSTS:
             raise UpdateError('更新地址重定向到了不受支持的站点。')
-        redirected = super().redirect_request(request, response, code, message, headers, new_url)
-        if redirected and target.hostname != urlsplit(request.full_url).hostname:
-            redirected.remove_header('Authorization')
-        return redirected
+        return super().redirect_request(request, response, code, message, headers, new_url)
 
 
 def select_release(releases, current, platform, architecture):
@@ -74,10 +67,6 @@ def select_release(releases, current, platform, architecture):
                 'version': '.'.join(map(str, version)), 'name': name,
                 'url': asset['browser_download_url'], 'page': release['html_url'],
                 'notes': str(release.get('body') or '此版本未提供更新说明。')[:12000],
-                'api': asset.get('url', '') if safe_api_asset(asset.get('url', '')) else '',
-                'checksumAPI': next((a.get('url', '') for a in release.get('assets', [])
-                    if a.get('name') == ('SHA256SUMS-macOS.txt' if platform == 'macos' else 'SHA256SUMS-Windows.txt')
-                    and safe_api_asset(a.get('url', ''))), ''),
                 'digest': asset.get('digest') or '', 'size': asset.get('size', 0),
                 'checksum': next((a['browser_download_url'] for a in release.get('assets', [])
                     if a.get('name') == ('SHA256SUMS-macOS.txt' if platform == 'macos' else 'SHA256SUMS-Windows.txt')
@@ -86,10 +75,9 @@ def select_release(releases, current, platform, architecture):
     return max(choices, key=lambda item: item[0])[1] if choices else None
 
 
-def open_remote(url, token=''):
-    if url != API_URL and not safe_api_asset(url) and not safe_url(url, asset=True): raise UpdateError('更新地址无效。')
+def open_remote(url):
+    if url != API_URL and not safe_url(url, asset=True): raise UpdateError('更新地址无效。')
     headers = {'User-Agent': 'LocalDeck-Updater', 'Accept': 'application/vnd.github+json' if url == API_URL else 'application/octet-stream'}
-    if token and urlsplit(url).hostname == 'api.github.com': headers['Authorization'] = 'Bearer ' + token
     try:
         response = build_opener(GitHubRedirect()).open(Request(url, headers=headers), timeout=25)
         final = urlsplit(response.geturl())
@@ -97,15 +85,14 @@ def open_remote(url, token=''):
             response.close(); raise UpdateError('更新地址重定向到了不受支持的站点。')
         return response
     except HTTPError as error:
-        if error.code == 401: raise UpdateError('GitHub 授权无效或已过期，请在设置中更新访问令牌。') from None
-        if error.code == 404: raise UpdateError('无法访问发行版本。私有仓库需要配置具有 Contents 只读权限的 GitHub 访问令牌，也可打开发行页登录查看。') from None
+        if error.code in (401, 404): raise UpdateError('无法访问公开发行版本，请稍后重试或打开发行页查看。') from None
         if error.code in (403, 429): raise UpdateError('GitHub 暂时限制了请求，请稍后重试。') from None
         raise UpdateError('GitHub 请求失败，请稍后重试。') from None
     except (URLError, TimeoutError, OSError): raise UpdateError('无法连接 GitHub，请检查网络后重试。') from None
 
 
-def check(current, platform, architecture, token=''):
-    with open_remote(API_URL, token) as response:
+def check(current, platform, architecture):
+    with open_remote(API_URL) as response:
         data = response.read(4 * 1024 * 1024 + 1)
     if len(data) > 4 * 1024 * 1024: raise UpdateError('发行版本数据过大，请打开 GitHub 发行页查看。')
     try: releases = json.loads(data)
@@ -114,12 +101,12 @@ def check(current, platform, architecture, token=''):
     return select_release(releases, current, platform, architecture)
 
 
-def checksum_for(release, token=''):
+def checksum_for(release):
     digest = release.get('digest', '')
     if re.fullmatch(r'sha256:[a-fA-F0-9]{64}', digest): return digest[7:].lower()
     manifest = release.get('checksum', '')
     if not safe_url(manifest, asset=True): raise UpdateError('发行包未提供 SHA-256 校验，请从 GitHub 发行页下载。')
-    with open_remote(release.get('checksumAPI', '') if token and safe_api_asset(release.get('checksumAPI', '')) else manifest, token) as response: data = response.read(65537)
+    with open_remote(manifest) as response: data = response.read(65537)
     if len(data) > 65536: raise UpdateError('更新校验文件无效。')
     for line in data.decode('utf-8').splitlines():
         fields = line.split(maxsplit=1)
@@ -127,17 +114,17 @@ def checksum_for(release, token=''):
     raise UpdateError('更新校验文件中没有对应的安装包。')
 
 
-def download(release, destination, progress=lambda value: None, token=''):
+def download(release, destination, progress=lambda value: None):
     name = release.get('name', '')
     if not re.fullmatch(r'LocalDeck-\d+\.\d+\.\d+-(?:macOS-(?:arm64|x64)\.dmg|Windows-(?:x64|arm64)\.exe)', name, re.I): raise UpdateError('更新包名称无效。')
     if not safe_url(release.get('url', ''), asset=True): raise UpdateError('更新包地址无效。')
     if unquote(urlsplit(release['url']).path.rsplit('/', 1)[-1]) != name: raise UpdateError('更新包地址与文件名不匹配。')
-    expected = checksum_for(release, token)
+    expected = checksum_for(release)
     folder = Path(destination) / 'LocalDeck Updates'; folder.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix='.download-', dir=folder)
     total = 0; digest = hashlib.sha256()
     try:
-        with os.fdopen(descriptor, 'wb') as output, open_remote(release.get('api', '') if token and safe_api_asset(release.get('api', '')) else release['url'], token) as response:
+        with os.fdopen(descriptor, 'wb') as output, open_remote(release['url']) as response:
             while True:
                 chunk = response.read(256 * 1024)
                 if not chunk: break
@@ -163,8 +150,8 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     try:
         command = json.load(sys.stdin)
-        if command['action'] == 'check': result = check(command['current'], command['platform'], command['architecture'], command.get('token', ''))
-        elif command['action'] == 'download': result = download(command['release'], command['destination'], token=command.get('token', ''))
+        if command['action'] == 'check': result = check(command['current'], command['platform'], command['architecture'])
+        elif command['action'] == 'download': result = download(command['release'], command['destination'])
         else: raise UpdateError('未知更新操作。')
         print(json.dumps({'ok': True, 'result': result}, ensure_ascii=False))
     except Exception as error:

@@ -1,8 +1,10 @@
-# LocalDeck 0.7.1 · macOS 与 Windows 11
+# LocalDeck 1.0.0 · macOS 与 Windows 11
 
-Windows 11 x64 下载 **LocalDeck-0.7.1-Windows-x64.exe**，退出旧版后运行新版；也可下载含说明和许可的 ZIP，无需安装 Python 或 Qt。
+Windows 11 x64 下载 **LocalDeck-1.0.0-Windows-x64.exe**，退出旧版后运行新版；也可下载含说明和许可的 ZIP，无需安装 Python 或 Qt。
 
-macOS Apple Silicon 下载 **LocalDeck-0.7.1-macOS-arm64.dmg**，退出旧版后拖动 LocalDeck.app 替换原应用；也提供 ZIP。需要 macOS 13+ 和 Python 3，原生液态玻璃需要 macOS 26+。
+macOS Apple Silicon 安装包需要 macOS 13+ 和 Python 3，原生液态玻璃需要 macOS 26+。
+
+关闭窗口会将 LocalDeck 收到系统托盘/菜单栏，服务和终端继续运行。通过状态栏菜单重新打开窗口；选择“退出 LocalDeck”会结束应用管理的任务，仍有终端任务时会先确认。
 
 ## 本次改进
 

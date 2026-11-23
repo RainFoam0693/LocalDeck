@@ -1,4 +1,4 @@
-LocalDeck 0.7.1 for Windows 11 x64
+LocalDeck 1.0.0 for Windows 11 x64
 
 Double-click LocalDeck.exe to launch. Python, Qt 6 and terminal dependencies are bundled.
 Requires Windows 11 build 22000 or newer. Windows 10 is no longer supported.
@@ -9,6 +9,8 @@ The interface uses a Fluent-inspired Qt layout (not WinUI), with Windows UI font
 rounded cards, consistent dark controls and high-DPI scaling.
 Appearance: light, dark, or follow system using the three-segment capsule.
 The selection is saved; terminals keep their sessions when themes change.
+Closing the window keeps LocalDeck running in the notification area.
+Open the tray menu to restore the window or choose Exit LocalDeck to quit.
 No administrator privileges requested. Place the EXE on your desktop if desired.
 
 Running services: TCP listeners, PID, ports, command line and working directory.
@@ -20,7 +22,7 @@ Tabs keep running while other app pages are selected.
 Closing a terminal tab stops its shell and children. App exit closes all terminals.
 
 Configuration and logs: %LOCALAPPDATA%\LocalDeck
-Closing the app stops tasks started by LocalDeck.
+Choosing Exit LocalDeck stops tasks started by LocalDeck; closing the window only hides it.
 External services are not stopped on exit.
 Protected processes may not expose command lines or directories.
 Detached tasks (for example "start") may outlive the managed shell.

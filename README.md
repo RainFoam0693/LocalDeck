@@ -6,7 +6,7 @@
 
 ## 下载
 
-安装包见 [GitHub Releases](https://github.com/RainFoam0693/LocalDeck/releases)。当前仓库为私有，仅有权限的账号可以访问。
+安装包见 [GitHub Releases](https://github.com/RainFoam0693/LocalDeck/releases)。仓库公开后可直接访问发行版。
 
 ## 打开
 
@@ -17,7 +17,7 @@
 - **我的启动项**：名称、目录、zsh 命令；支持启动、停止、重启、最近 100 KB 日志。
 - **终端任务**：可托管脚本和非交互命令，启动项继续保存日志；交互式命令可在「应用内终端」中运行，不读取其他终端软件的历史输出。
 - 每 4 秒刷新。已有外部服务只能发现、打开或停止；要重启和收集日志，需要添加启动项。
-- 退出应用会停止由它启动的任务；已有外部服务不受影响。配置和日志保存在 `~/Library/Application Support/LocalDeck`。日志当前不自动轮转。
+- 关闭窗口会将 LocalDeck 留在菜单栏后台运行，服务与终端任务继续执行；从菜单栏明确退出时会停止由它启动的任务，已有外部服务不受影响。配置和日志保存在 `~/Library/Application Support/LocalDeck`。日志当前不自动轮转。
 
 ## 构建与验证
 
@@ -52,8 +52,8 @@ Mac 和 Windows 都提供独立的终端工作区，可同时打开多个终端�
 
 - Mac：原生 SwiftTerm + zsh 伪终端，支持 ANSI/VT 输出、方向键、Tab、Ctrl+C、⌘C/⌘V 和滚动历史。
 - Windows：pywinpty 伪终端 + pyte VT 屏幕，支持 CMD、PowerShell、方向键、Tab、Ctrl+C、Ctrl+Shift+C/V、颜色和窗口尺寸变化。
-- 可在指定目录新建终端；关闭标签会确认并停止该会话，其他终端继续运行。退出应用会清理全部终端。
-- 退出应用前检查终端任务：有前台或后台任务时默认取消，并提供“结束任务并退出”；空闲 Shell 或没有终端时直接退出。Mac 关闭最后一个窗口和 Cmd+Q 都遵循同一检查。
+- 可在指定目录新建终端；关闭标签会确认并停止该会话，其他终端继续运行。明确退出应用会清理全部终端。
+- 明确退出应用前检查终端任务：有前台或后台任务时默认取消，并提供“结束任务并退出”；空闲 Shell 或没有终端时直接退出。关闭最后一个窗口会将应用收到菜单栏后台运行。
 - 内置终端不提供 SSH 自动重连、分屏或跨应用退出恢复。Windows 的 VT 实现与 Mac 的完整 xterm 仿真存在差异，复杂全屏程序的兼容性可能不同。
 
 Mac 终端烟雾测试：`dist/LocalDeck.app/Contents/MacOS/LocalDeck --terminal-smoke-test`，结果写入 `/tmp/localdeck-mac-terminal-smoke.json`。Windows 的 `--terminal-smoke-test` 会检查双标签隔离、切换页面继续输出、缩放、Ctrl+C、单标签关闭和退出清理；源码和打包 EXE 都会在 CI 中执行。
@@ -78,7 +78,7 @@ Mac 顶栏右侧、Windows 侧栏底部提供三段小胶囊：太阳（浅色�
 
 0.5.0 重写 Windows 界面：统一深色控件、圆角面板、Windows UI 字体、高 DPI 缩放与轻量滚动条。保留系统原生标题栏及 Snap Layouts，通过公开 DWM API 请求深色标题栏、圆角和 Mica；Mica 需要 22H2 及以上，并服从系统设置。界面由 Qt 实现，并非 WinUI。macOS 界面与构建不受影响。
 
-最新安装包放在 [Releases](https://github.com/RainFoam0693/LocalDeck/releases)。Windows 选择 `LocalDeck-0.7.1-Windows-x64.exe`，双击运行；也可选择包含说明和第三方许可的 ZIP。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10，无需安装 Python 或 Qt。macOS Apple Silicon 选择 DMG 或 macOS ZIP。当前包未做 Apple 公证或 Windows Authenticode 签名。
+最新安装包放在 [Releases](https://github.com/RainFoam0693/LocalDeck/releases)。Windows 选择 `LocalDeck-1.0.0-Windows-x64.exe`，双击运行；也可选择包含说明和第三方许可的 ZIP。适用于 Windows 11 x64（内部版本 22000 及以上），不再支持 Windows 10，无需安装 Python 或 Qt。macOS Apple Silicon 选择 DMG 或 macOS ZIP。当前包未做 Apple 公证或 Windows Authenticode 签名。
 
 功能包括 TCP 监听进程扫描、搜索、打开浏览器和目录、确认后停止进程、命令启动项、启停/重启和最近 100 KB 日志。Windows 命令通过 `cmd.exe /d /s /c` 执行；配置与日志在 `%LOCALAPPDATA%\LocalDeck`。受保护进程可能无法读取信息或停止，程序不会请求提权。Windows 停止操作会终止目标进程；托管任务会同时停止其子进程。使用 `start` 等脱离管理 shell 的任务可能继续运行。「应用内终端」支持独立的 CMD / PowerShell 会话。
 
@@ -91,7 +91,7 @@ python scripts/test_backend.py
 ./windows/build.ps1
 ```
 
-GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-0.7.1-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
+GitHub Actions 会在 Windows runner 上执行真实 TCP 服务测试、桌面 UI 冒烟测试、PyInstaller 打包以及打包后的 EXE 冒烟测试。推送 `windows-v*` 标签会自动发布 Windows 版本。输出为 `dist/LocalDeck-1.0.0-Windows-x64.exe`、ZIP 和 SHA-256 校验文件。
 
 ## 后端 API
 
@@ -123,11 +123,7 @@ Windows 本机 API 始终直连 127.0.0.1，不使用系统代理；回归验证
 
 ### 应用内更新
 
-设置中提供手动检查、自动检查开关和下载入口。默认每周一、三、五，在应用运行时按本地日期每天检查一次；关闭应用时不会启动后台定时任务。发现新版后，页面顶部显示提示，用户确认后才下载，稍后处理不会结束终端任务。
-
-更新按当前系统与架构选择 GitHub Releases 中的正式安装包，忽略预发布、草稿和旧版本。下载到系统“下载”目录的 `LocalDeck Updates` 文件夹，并校验 SHA-256。macOS 打开 DMG 后退出旧版并替换应用；Windows 打开下载位置，退出旧版后用新 EXE 替换原文件。现有配置保留，运行中的终端任务不会迁移。
-
-公开仓库无需配置。私有仓库可在设置中保存 GitHub fine-grained 访问令牌，限定 LocalDeck 仓库的 **Contents → Read-only** 权限；macOS 使用系统钥匙串，Windows 使用凭据管理器，令牌不会写入普通配置文件或打包进软件。无法授权时仍可通过“GitHub 发行页”登录下载。
+设置中可以手动检查更新，也可以开启每周一、三、五自动检查。发现新版后，主页面会显示更新提示；应用展示版本说明并等待用户确认后才开始下载。更新器从公开 GitHub Releases 选择当前系统和架构对应的正式版本，下载后校验 SHA-256，无需额外账号授权。下载完成后，点击「安装并重启」即可替换并重新打开应用。运行中的终端会触发退出确认，配置会保留。自动安装需要对应用所在目录有写入权限。
 
 发布时，版本标签使用 `vX.Y.Z`、`macos-vX.Y.Z` 或 `windows-vX.Y.Z`；安装包名称为 `LocalDeck-X.Y.Z-macOS-arm64.dmg` 或 `LocalDeck-X.Y.Z-Windows-x64.exe`（其他架构相应替换）。校验使用 GitHub 资产的 `sha256` digest；旧资产需同时上传 `SHA256SUMS-macOS.txt` / `SHA256SUMS-Windows.txt`。未发布到 Releases 的 Actions 构建不会被当作正式更新。
 
@@ -142,3 +138,11 @@ Windows 本机 API 始终直连 127.0.0.1，不使用系统代理；回归验证
 Mac 终端按小数像素绘制滚动位置，使用短缓动连接滚轮输入，保留触控板惯性；macOS 14+ 使用屏幕同步刷新，旧版系统采用计时器，实际帧率取决于设备和负载。开启系统“减少动态效果”时直接响应输入。终端标签背景空白处也可切换会话，右侧关闭按钮独立处理。应用声明简体中文本地化，原生菜单栏使用中文。
 
 Windows 累积细小滚动输入，避免每次小幅输入都跳过数行。两端拖选到上下边缘时自动滚动，新日志不会中断拖选。Windows 拖选期间暂缓界面刷新，松开后补齐输出并按日志行恢复选区。右键提供复制、粘贴、全选、取消选择、复制全部文本、回到最新输出；粘贴多行命令需用户确认。
+
+### 后台运行（1.0.0）
+
+关闭主窗口会将 LocalDeck 收到 macOS 菜单栏或 Windows 系统托盘，后端服务、启动项和终端会话继续运行。状态栏菜单可重新打开窗口或明确退出；选择退出时仍会提醒正在运行的终端任务。
+
+## 参与贡献
+
+欢迎通过 GitHub Issues 反馈问题或提出建议，也可以提交 Pull Request。反馈问题时请附上系统版本、LocalDeck 版本和复现步骤。

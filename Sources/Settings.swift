@@ -9,7 +9,6 @@ struct DeckSettingsView: View {
     @AppStorage("appearanceMode") private var appearance = DeckAppearance.system.rawValue
     @State private var accessResult = "未检查。检查只读取你选择的目录，不会修改文件。"
     @State private var checking = false
-    @State private var updateToken = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack { Label("设置", systemImage: "gearshape").font(.title2.bold()); Spacer(); Button("完成") { dismiss() }.buttonStyle(DeckButton()) }
@@ -19,27 +18,16 @@ struct DeckSettingsView: View {
                     Text(updater.message).font(.callout).textSelection(.enabled)
                     Text("上次成功检查：" + updater.lastChecked).font(.caption).foregroundStyle(.secondary)
                     Toggle("每周一、三、五自动检查更新", isOn: $updater.automatic)
-                    Text("应用运行时每天检查一次。只提示新版本，下载与替换由你确认。").font(.caption).foregroundStyle(.secondary)
+                    Text("通过应用内检查公开发行版。发现更新后会提示你；下载和替换由你确认。").font(.caption).foregroundStyle(.secondary)
                     HStack {
                         Button("检查更新") { updater.check() }.buttonStyle(DeckButton()).disabled(updater.busy)
                         if updater.release != nil {
-                            Button(updater.downloaded == nil ? "下载更新" : "打开安装包") {
+                            Button(updater.downloaded == nil ? "下载更新" : "安装并重启") {
                                 if updater.downloaded != nil { updater.openDownload() } else { updater.confirmDownload() }
                             }.buttonStyle(DeckButton(primary: true)).disabled(updater.busy)
                         }
                         Button("GitHub 发行页") { updater.openReleases() }.buttonStyle(DeckButton())
                     }
-                }
-                Section("私有仓库授权（可选）") {
-                    Text(updater.authorized ? "已保存到系统钥匙串" : "公开仓库无需授权；私有仓库需要 GitHub 访问令牌。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    SecureField("GitHub 访问令牌", text: $updateToken)
-                    HStack {
-                        Button("保存授权") { updater.saveAuthorization(updateToken); updateToken = "" }.disabled(updater.busy || updateToken.isEmpty).buttonStyle(DeckButton())
-                        if updater.authorized { Button("移除授权") { updater.saveAuthorization("") }.disabled(updater.busy).buttonStyle(DeckButton()) }
-                        Link("创建只读令牌", destination: URL(string: "https://github.com/settings/personal-access-tokens/new")!)
-                    }
-                    Text("选择 LocalDeck 仓库，仅开启 Contents → Read-only。令牌仅用于 GitHub 更新请求。").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("文件访问") {
                     Text("允许访问所有文件").font(.headline)

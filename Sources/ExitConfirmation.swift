@@ -25,7 +25,8 @@ struct ExitAwareWindow: NSViewRepresentable {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if previous?.windowShouldClose?(sender) == false { return false }
         if NSApp.windows.contains(where: { $0 !== sender && $0.isVisible && $0.canBecomeMain }) { return true }
-        NSApp.terminate(nil)
+        // Closing the last window hides LocalDeck; the status item keeps it reachable.
+        NSApp.hide(nil)
         return false
     }
     override func responds(to selector: Selector!) -> Bool { super.responds(to: selector) || previous?.responds(to: selector) == true }

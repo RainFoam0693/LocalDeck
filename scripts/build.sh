@@ -25,6 +25,7 @@ iconutil -c icns assets/LocalDeck.iconset -o assets/LocalDeck.icns
 cp assets/LocalDeck.icns "$APP/Contents/Resources/LocalDeck.icns"
 cp -f licenses/SwiftTerm-LICENSE.txt "$APP/Contents/Resources/SwiftTerm-LICENSE.txt"
 cp backend/performance.py "$APP/Contents/Resources/performance.py"
+cp scripts/install-update.sh "$APP/Contents/Resources/install-update.sh"
 cp backend/updates.py "$APP/Contents/Resources/updates.py"
 cp backend/server.py "$APP/Contents/Resources/server.py"
 mkdir -p "$APP/Contents/Resources/zh-Hans.lproj"
@@ -41,8 +42,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>LocalDeck</string>
 <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string></array>
-<key>CFBundleVersion</key><string>10</string>
-<key>CFBundleShortVersionString</key><string>0.7.2</string>
+<key>CFBundleVersion</key><string>11</string>
+<key>CFBundleShortVersionString</key><string>1.0.0</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
