@@ -28,6 +28,14 @@ def replace_once(old, new):
         raise SystemExit('SwiftTerm input patch no longer matches; review dependency before building.')
     text = text.replace(old, new, 1)
 
+def replace_legacy_once(variants, new):
+    global text
+    if new in text: return
+    matches = [old for old in variants if old in text]
+    if len(matches) != 1:
+        raise SystemExit('SwiftTerm selection patch no longer matches; review dependency before building.')
+    text = text.replace(matches[0], new, 1)
+
 replace_once('    private var autoScrollDelta = 0\n', '''    private var autoScrollDelta = 0
     private var deckSelectionTimer: Timer?
     private var deckSelectionPoint = CGPoint.zero
@@ -142,27 +150,43 @@ if source.read_text() != text:
     source.chmod(source.stat().st_mode | stat.S_IWUSR)
     source.write_text(text)
 
-# Keep active selections while new lines arrive during a drag.
-replace_once('''    open func linefeed(source: Terminal) {
+# Keep selections while new output arrives, including after the drag has ended.
+replace_legacy_once([
+    '''    open func linefeed(source: Terminal) {
         selection.selectNone()
     }
-''', '''    open func linefeed(source: Terminal) {
+''',
+    '''    open func linefeed(source: Terminal) {
         if !didSelectionDrag { selection.selectNone() }
+    }
+'''
+], '''    open func linefeed(source: Terminal) {
+        // LocalDeck: streamed output must not clear a user's existing selection.
     }
 ''')
 if source.read_text() != text:
     source.chmod(source.stat().st_mode | stat.S_IWUSR)
     source.write_text(text)
 
-# New terminal output must not cancel a drag that is still in progress.
+# New terminal output must not cancel a user's selection.
 source = source.parent.parent/'Apple/AppleTerminalView.swift'
 text = source.read_text()
-replace_once('''        search.invalidate()
+replace_legacy_once([
+    '''        search.invalidate()
         selection.active = false
         startDisplayUpdates()
-''', '''        search.invalidate()
+''',
+    '''        search.invalidate()
         #if os(macOS)
         if !didSelectionDrag { selection.active = false }
+        #else
+        selection.active = false
+        #endif
+        startDisplayUpdates()
+'''
+], '''        search.invalidate()
+        #if os(macOS)
+        // LocalDeck: keep the existing text selection during streamed output.
         #else
         selection.active = false
         #endif
