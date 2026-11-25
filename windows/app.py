@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QPlainTextEdit, QFileDialog, QMessageBox, QDialog, QFormLayout, QDialogButtonBox,
     QScrollArea, QSizePolicy, QTabBar, QComboBox, QCheckBox, QSystemTrayIcon, QMenu)
 from windows.fluent import themed, appearance_icon, VERSION, AppearanceManager, AppearanceCapsule, setup_theme, apply_native_window, label, panel, MetricCard, ServiceDelegate, percent, memory
+from windows.glass_navigation import GlassNavigation
 from windows.terminal import TerminalWorkspace
 from windows.api_client import LocalAPIClient
 from windows.updates import AppUpdater
@@ -60,6 +61,7 @@ class App(QMainWindow):
             view.version = -1
             close = self.terminals.tabs.tabBar().tabButton(self.terminals.tabs.indexOf(view), QTabBar.RightSide)
             if close: close.setIcon(appearance_icon('close', themed('#b0b0b0')))
+        self.navigation.update()
         self.live_list.viewport().update(); self.task_list.viewport().update()
 
     def button(self, text, callback, name=None):
@@ -69,25 +71,25 @@ class App(QMainWindow):
 
     def build_ui(self):
         root = QWidget(); self.setCentralWidget(root)
-        layout = QHBoxLayout(root); layout.setContentsMargins(12, 12, 16, 12); layout.setSpacing(16)
-        sidebar = QWidget(); sidebar.setObjectName('sidebar'); sidebar.setFixedWidth(210)
-        nav = QVBoxLayout(sidebar); nav.setContentsMargins(6, 16, 6, 8); nav.setSpacing(6)
-        brand = QHBoxLayout(); logo = label('◈'); logo.setStyleSheet('color: #76b9ed; font-size: 25px;'); brand.addWidget(logo); brand.addWidget(label('LocalDeck', 'brand')); brand.addStretch()
-        nav.addLayout(brand); nav.addSpacing(26); nav.addWidget(label('工作空间', 'muted')); nav.addSpacing(6)
-        self.nav_buttons = []
-        for index, title in enumerate(['服务概览', '启动项', '终端工作区', 'SSH 服务器']):
-            button = self.button(title, lambda i=index:self.select_page(i), 'nav'); button.setCheckable(True)
-            button.setAccessibleName(title); nav.addWidget(button); self.nav_buttons.append(button)
-        nav.addStretch(); self.appearance_capsule = AppearanceCapsule(self.appearance); nav.addWidget(self.appearance_capsule); nav.addSpacing(14); nav.addWidget(label('●  此 Windows PC', 'muted')); nav.addSpacing(8)
-        nav.addWidget(label('LocalDeck '+VERSION, 'muted')); layout.addWidget(sidebar)
-        content = QWidget(); content_layout = QVBoxLayout(content); content_layout.setContentsMargins(10, 12, 0, 0); content_layout.setSpacing(18)
-        top = QHBoxLayout(); self.title_label = label('服务概览', 'heading'); top.addWidget(self.title_label); top.addStretch()
-        top.addWidget(self.button('SSH 服务器', lambda:self.select_page(3)))
+        layout = QVBoxLayout(root); layout.setContentsMargins(22, 14, 22, 12); layout.setSpacing(14)
+        navigation = QHBoxLayout(); navigation.setSpacing(10)
+        logo = label('◈'); logo.setStyleSheet('color: #76b9ed; font-size: 25px;')
+        navigation.addWidget(logo); navigation.addWidget(label('LocalDeck', 'brand'))
+        navigation.addStretch(1)
+        self.navigation = GlassNavigation(['服务概览', '启动项', '终端工作区', 'SSH 服务器'])
+        navigation.addWidget(self.navigation); navigation.addStretch(1)
+        self.appearance_capsule = AppearanceCapsule(self.appearance)
+        self.appearance_capsule.setFixedWidth(140); navigation.addWidget(self.appearance_capsule)
         self.settings_button = self.button('', self.settings_dialog)
         self.settings_button.setIcon(appearance_icon('settings', themed('#b0b0b0')))
         self.settings_button.setFixedSize(38, 38)
         self.settings_button.setStyleSheet('QPushButton { min-width: 0; padding: 0; border-radius: 19px; }')
-        self.settings_button.setAccessibleName('设置'); self.settings_button.setToolTip('设置'); top.addWidget(self.settings_button)
+        self.settings_button.setAccessibleName('设置'); self.settings_button.setToolTip('设置'); navigation.addWidget(self.settings_button)
+        layout.addLayout(navigation)
+        content = QWidget(); content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0); content_layout.setSpacing(14)
+        top = QHBoxLayout(); self.title_label = label('服务概览', 'heading')
+        top.addWidget(self.title_label); top.addStretch()
         self.refresh_button = self.button('刷新', self.refresh); top.addWidget(self.refresh_button)
         top.addWidget(self.button('＋ 添加启动项', self.add_dialog, 'primary')); content_layout.addLayout(top)
         self.update_banner = panel(); update_layout = QHBoxLayout(self.update_banner)
@@ -104,7 +106,10 @@ class App(QMainWindow):
         self.build_live(); self.build_managed(); self.terminals = TerminalWorkspace(); self.tabs.addWidget(self.terminals)
         from windows.ssh import SSHServers
         self.ssh_servers = SSHServers(self.connect_ssh); self.tabs.addWidget(self.ssh_servers)
-        self.status = label('正在连接本机服务…', 'muted'); content_layout.addWidget(self.status)
+        self.status = label('正在连接本机服务…', 'muted')
+        footer = QHBoxLayout(); footer.addWidget(self.status); footer.addStretch()
+        footer.addWidget(label('LocalDeck '+VERSION, 'muted')); content_layout.addLayout(footer)
+        self.navigation.currentChanged.connect(self.select_page)
         layout.addWidget(content, 1); self.select_page(0)
 
     def update_update_banner(self):
@@ -206,7 +211,8 @@ class App(QMainWindow):
 
     def select_page(self, index):
         self.tabs.setCurrentIndex(index); self.title_label.setText(['服务概览', '启动项', '终端工作区', 'SSH 服务器'][index])
-        for i, button in enumerate(self.nav_buttons): button.setChecked(i == index)
+        if self.navigation.currentIndex() != index:
+            self.navigation.setCurrentIndex(index)
 
     def toggle_sort(self):
         self.sort_cpu = not self.sort_cpu; self.sort_button.setText('默认顺序' if self.sort_cpu else '按 CPU 排序'); self.render_listeners()

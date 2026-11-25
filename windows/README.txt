@@ -1,4 +1,4 @@
-LocalDeck 1.0.0 for Windows 11 x64
+LocalDeck 1.0.1 for Windows 11 x64
 
 Double-click LocalDeck.exe to launch. Python, Qt 6 and terminal dependencies are bundled.
 Requires Windows 11 build 22000 or newer. Windows 10 is no longer supported.

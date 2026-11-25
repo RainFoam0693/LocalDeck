@@ -107,8 +107,8 @@ jobs:
         with:
           name: LocalDeck-Windows-x64
           path: |
-            dist/LocalDeck-1.0.0-Windows-x64.exe
-            dist/LocalDeck-1.0.0-Windows-x64.zip
+            dist/LocalDeck-1.0.1-Windows-x64.exe
+            dist/LocalDeck-1.0.1-Windows-x64.zip
             dist/SHA256SUMS-Windows.txt
           if-no-files-found: error
       - name: Publish Windows release
@@ -117,5 +117,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 1.0.0 · macOS 与 Windows 11 · 后台运行' --notes-file windows/RELEASE.md dist/LocalDeck-1.0.0-Windows-x64.exe dist/LocalDeck-1.0.0-Windows-x64.zip dist/SHA256SUMS-Windows.txt
+          gh release create $env:GITHUB_REF_NAME --title 'LocalDeck 1.0.1 · Windows 11 · Liquid Glass 顶部导航' --notes-file windows/RELEASE.md dist/LocalDeck-1.0.1-Windows-x64.exe dist/LocalDeck-1.0.1-Windows-x64.zip dist/SHA256SUMS-Windows.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
