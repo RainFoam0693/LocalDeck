@@ -70,17 +70,26 @@ struct TerminalFileOperations {
     var visible: [TerminalFileEntry] {
         entries.filter { (showHidden || !$0.hidden) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)) }
     }
-    init() { Task { await navigate(directory, record: false) } }
+    private var didLoad = false
+    func loadIfNeeded() async {
+        guard !didLoad else { return }
+        await navigate(directory, record: false)
+    }
     func navigate(_ target: URL, record: Bool = true) async {
+        didLoad = true
         let target = target.standardizedFileURL
         let request = UUID(); generation = request; loading = true; error = ""
         do {
             let result = try await Task.detached(priority: .userInitiated) {
                 let keys: Set<URLResourceKey> = [.isDirectoryKey, .isHiddenKey, .fileSizeKey]
-                return try FileManager.default.contentsOfDirectory(at: target, includingPropertiesForKeys: Array(keys)).map { url in
-                    let info = try url.resourceValues(forKeys: keys)
-                    return TerminalFileEntry(url: url, name: url.lastPathComponent, directory: info.isDirectory == true,
-                                             hidden: info.isHidden == true || url.lastPathComponent.hasPrefix("."), size: info.fileSize ?? 0)
+                return try FileManager.default.contentsOfDirectory(at: target, includingPropertiesForKeys: nil).map { url in
+                    // The home listing can show these folders without requesting access to them.
+                    if target.path == NSHomeDirectory(), ["Desktop", "Documents", "Downloads"].contains(url.lastPathComponent) {
+                        return TerminalFileEntry(url: url, name: url.lastPathComponent, directory: true, hidden: false, size: 0)
+                    }
+                    let info = try? url.resourceValues(forKeys: keys)
+                    return TerminalFileEntry(url: url, name: url.lastPathComponent, directory: info?.isDirectory == true,
+                                             hidden: info?.isHidden == true || url.lastPathComponent.hasPrefix("."), size: info?.fileSize ?? 0)
                 }.sorted { left, right in
                     if left.directory != right.directory { return left.directory }
                     return left.name.localizedStandardCompare(right.name) == .orderedAscending
@@ -151,6 +160,7 @@ struct TerminalFilesPane: View {
                 .buttonStyle(DeckButton()).help("切换当前终端目录；没有终端时自动新建")
         }.padding(14).background(Deck.panel, in: RoundedRectangle(cornerRadius: 12))
         .onAppear { path = browser.directory.path }
+        .task { await browser.loadIfNeeded() }
         .onChange(of: browser.directory) { path = $0.path }
         .sheet(isPresented: $editing) { editSheet }
         .alert("文件操作失败", isPresented: Binding(get: { !actionError.isEmpty }, set: { if !$0 { actionError = "" } })) { Button("好") { actionError = "" } } message: { Text(actionError) }

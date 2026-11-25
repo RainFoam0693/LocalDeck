@@ -27,7 +27,7 @@ private struct UpdateReply<T: Decodable>: Decodable {
     @Published var message = "尚未检查更新"
     @Published var lastChecked: String
     @Published var automatic: Bool { didSet { defaults.set(automatic, forKey: "updatesAutomatic") } }
-    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+    let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1"
     private let defaults = UserDefaults.standard
     private var timer: Timer?
     private var operation: Process?

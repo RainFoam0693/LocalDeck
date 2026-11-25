@@ -42,8 +42,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>LocalDeck</string>
 <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
 <key>CFBundleLocalizations</key><array><string>zh-Hans</string></array>
-<key>CFBundleVersion</key><string>11</string>
-<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleVersion</key><string>12</string>
+<key>CFBundleShortVersionString</key><string>1.0.1</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

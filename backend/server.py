@@ -52,8 +52,8 @@ def listeners():
             if int(port) not in row['ports']: row['ports'].append(int(port))
     for pid, row in rows.items():
         row['command'] = run(['/bin/ps', '-p', str(pid), '-o', 'command=']).strip()
-        cwd = run(['/usr/sbin/lsof', '-a', '-p', str(pid), '-d', 'cwd', '-Fn'])
-        row['directory'] = next((x[1:] for x in cwd.splitlines() if x.startswith('n')), '')
+        # A background scan should not inspect paths inside protected user folders.
+        row['directory'] = ''
     return sorted((row for row in rows.values() if row['pid'] not in (os.getpid(), os.getppid())), key=lambda row: row['pid'])
 
 def snapshot():
